@@ -162,7 +162,7 @@ Re-login if `docker` permission is denied.
 
 ```bash
 cd ~
-git clone YOUR_REPO_URL grc
+git clone https://github.com/KiraKirasin/GRC grc
 cd grc
 ```
 
