@@ -1,0 +1,444 @@
+import type { Express } from 'express';
+import type { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import multer from 'multer';
+import {
+  PROJECT_FRAMEWORK_OPTIONS,
+  filterControlsForFramework,
+  findFrameworkOption,
+} from './frameworks.js';
+
+const UPLOAD_ROOT = path.resolve(
+  process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'projects')
+);
+
+export interface ControlAttachmentMeta {
+  id: string;
+  name: string;
+  storedName: string;
+  size: number;
+  mimeType: string;
+  uploadedAt: string;
+}
+
+function parseJsonArray<T>(value: string, fallback: T[] = []): T[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function parseJsonObject(value: string, fallback: Record<string, unknown> = {}) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeAttachments(raw: unknown[]): ControlAttachmentMeta[] {
+  return raw.map((item, i) => {
+    if (typeof item === 'string') {
+      return {
+        id: `legacy-${i}`,
+        name: item,
+        storedName: '',
+        size: 0,
+        mimeType: '',
+        uploadedAt: '',
+      };
+    }
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>;
+      return {
+        id: String(o.id || `att-${i}`),
+        name: String(o.name || 'file'),
+        storedName: String(o.storedName || ''),
+        size: Number(o.size || 0),
+        mimeType: String(o.mimeType || ''),
+        uploadedAt: String(o.uploadedAt || ''),
+      };
+    }
+    return {
+      id: `unknown-${i}`,
+      name: 'file',
+      storedName: '',
+      size: 0,
+      mimeType: '',
+      uploadedAt: '',
+    };
+  });
+}
+
+function normalizeMitigation(raw: unknown): {
+  enabled: boolean;
+  title: string;
+  description: string;
+  category: string;
+  assignee: string;
+  dueDate: string;
+  priority: string;
+  status: string;
+  taskId?: string;
+} {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    enabled: Boolean(o.enabled),
+    title: String(o.title || ''),
+    description: String(o.description || ''),
+    category: String(o.category || ''),
+    assignee: String(o.assignee || ''),
+    dueDate: String(o.dueDate || ''),
+    priority: String(o.priority || 'medium'),
+    status: String(o.status || 'remaining'),
+    ...(o.taskId ? { taskId: String(o.taskId) } : {}),
+  };
+}
+
+function serializeProjectControl(control: {
+  evidence: string;
+  evidenceLinks: string;
+  attachments: string;
+  accessList: string;
+  mitigation?: string;
+} & Record<string, unknown>) {
+  return {
+    ...control,
+    evidence: parseJsonArray<string>(control.evidence),
+    evidenceLinks: parseJsonArray<string>(control.evidenceLinks),
+    attachments: normalizeAttachments(parseJsonArray(control.attachments)),
+    accessList: parseJsonArray(control.accessList),
+    mitigation: normalizeMitigation(parseJsonObject(control.mitigation || '{}')),
+  };
+}
+
+function controlUploadDir(projectId: string, controlId: string) {
+  return path.join(UPLOAD_ROOT, projectId, controlId);
+}
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, _file, cb) => {
+      const dir = controlUploadDir(req.params.id, req.params.controlId);
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).slice(0, 32);
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024, files: 10 },
+});
+
+function serializeProject(project: {
+  team: string;
+  scope: string;
+  tasks: string;
+  reviews: string;
+  findings: string;
+} & Record<string, unknown>, controlCount = 0) {
+  return {
+    ...project,
+    team: parseJsonArray<string>(project.team),
+    scope: parseJsonObject(project.scope, {
+      businessUnits: [], systems: [], assets: [], frameworks: [], controls: [], policies: [], vendors: [],
+    }),
+    tasks: parseJsonArray(project.tasks),
+    reviews: parseJsonArray(project.reviews),
+    findings: parseJsonArray(project.findings),
+    controlCount,
+  };
+}
+
+export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
+  app.get('/api/frameworks', async (_req, res) => {
+    try {
+      const allControls = await prisma.gRCControl.findMany({
+        select: { framework: true, source: true },
+      });
+
+      const frameworks = PROJECT_FRAMEWORK_OPTIONS.map(opt => {
+        const matched = filterControlsForFramework(allControls, opt.name);
+        return {
+          name: opt.name,
+          shortName: opt.shortName,
+          count: matched.length,
+        };
+      });
+
+      res.json(frameworks);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to load frameworks' });
+    }
+  });
+
+  app.get('/api/projects', async (_req, res) => {
+    try {
+      const projects = await prisma.project.findMany({
+        orderBy: { updatedAt: 'desc' },
+        include: { _count: { select: { projectControls: true } } },
+      });
+      res.json(projects.map(p => serializeProject(p, p._count.projectControls)));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to load projects' });
+    }
+  });
+
+  app.post('/api/projects', async (req, res) => {
+    try {
+      const body = req.body;
+      const framework = String(body.framework || '').trim();
+      if (!framework) {
+        return res.status(400).json({ error: 'Framework is required' });
+      }
+
+      const allControls = await prisma.gRCControl.findMany({
+        orderBy: [{ controlCode: 'asc' }, { title: 'asc' }],
+      });
+      const masterControls = filterControlsForFramework(allControls, framework);
+      const frameworkMeta = findFrameworkOption(framework);
+      const projectFramework = frameworkMeta?.name || framework;
+
+      if (masterControls.length === 0) {
+        return res.status(400).json({ error: `No controls found in Controls Repository for framework: ${framework}` });
+      }
+
+      const scope = {
+        businessUnits: [],
+        systems: [],
+        assets: [],
+        frameworks: [projectFramework],
+        controls: masterControls.map(c => c.controlCode || c.title),
+        policies: [],
+        vendors: [],
+      };
+
+      const project = await prisma.project.create({
+        data: {
+          title: body.title,
+          company: body.company || 'NovaPay LLC',
+          type: body.type || 'audit',
+          framework: projectFramework,
+          status: body.status || 'created',
+          description: body.description || '',
+          owner: body.owner || '',
+          team: JSON.stringify(body.team || []),
+          scope: JSON.stringify(scope),
+          tasks: JSON.stringify([]),
+          reviews: JSON.stringify([]),
+          findings: JSON.stringify([]),
+          startDate: body.startDate || '',
+          targetDate: body.targetDate || '',
+          progress: 0,
+        },
+      });
+
+      const batchSize = 100;
+      for (let i = 0; i < masterControls.length; i += batchSize) {
+        const batch = masterControls.slice(i, i + batchSize).map(c => ({
+          projectId: project.id,
+          sourceControlId: c.id,
+          controlCode: c.controlCode || '',
+          title: c.title,
+          description: c.description,
+          framework: projectFramework,
+          category: c.category,
+          status: c.status || 'pending',
+          owner: c.owner,
+          evidence: c.evidence,
+          evidenceLinks: c.evidenceLinks,
+          attachments: c.attachments,
+          controlDesign: c.controlDesign,
+          source: c.source,
+          accessList: c.accessList,
+          lastReviewed: c.lastReviewed,
+        }));
+        await prisma.projectControl.createMany({ data: batch });
+      }
+
+      const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+      res.status(201).json(serializeProject(project, count));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to create project' });
+    }
+  });
+
+  app.get('/api/projects/:id', async (req, res) => {
+    try {
+      const project = await prisma.project.findUnique({
+        where: { id: req.params.id },
+        include: { _count: { select: { projectControls: true } } },
+      });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      res.json(serializeProject(project, project._count.projectControls));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to load project' });
+    }
+  });
+
+  app.patch('/api/projects/:id', async (req, res) => {
+    try {
+      const body = req.body;
+      const data: Record<string, string | number> = {};
+      for (const key of ['title', 'company', 'type', 'framework', 'status', 'description', 'owner', 'startDate', 'targetDate', 'completedAt'] as const) {
+        if (body[key] !== undefined) data[key] = body[key];
+      }
+      if (body.progress !== undefined) data.progress = Number(body.progress);
+      if (body.team !== undefined) data.team = JSON.stringify(body.team);
+      if (body.scope !== undefined) data.scope = JSON.stringify(body.scope);
+      if (body.tasks !== undefined) data.tasks = JSON.stringify(body.tasks);
+      if (body.reviews !== undefined) data.reviews = JSON.stringify(body.reviews);
+      if (body.findings !== undefined) data.findings = JSON.stringify(body.findings);
+
+      const project = await prisma.project.update({ where: { id: req.params.id }, data });
+      const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+      res.json(serializeProject(project, count));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to update project' });
+    }
+  });
+
+  app.delete('/api/projects/:id', async (req, res) => {
+    try {
+      await prisma.project.delete({ where: { id: req.params.id } });
+      res.status(204).end();
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to delete project' });
+    }
+  });
+
+  app.get('/api/projects/:id/controls', async (req, res) => {
+    try {
+      const controls = await prisma.projectControl.findMany({
+        where: { projectId: req.params.id },
+        orderBy: [{ controlCode: 'asc' }, { title: 'asc' }],
+      });
+      res.json(controls.map(serializeProjectControl));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to load project controls' });
+    }
+  });
+
+  app.patch('/api/projects/:id/controls/:controlId', async (req, res) => {
+    try {
+      const body = req.body;
+      const existing = await prisma.projectControl.findFirst({
+        where: { id: req.params.controlId, projectId: req.params.id },
+      });
+      if (!existing) return res.status(404).json({ error: 'Project control not found' });
+
+      const data: Record<string, string> = {};
+      for (const key of ['title', 'description', 'framework', 'category', 'status', 'owner', 'controlDesign', 'source', 'lastReviewed', 'controlCode'] as const) {
+        if (body[key] !== undefined) data[key] = body[key];
+      }
+      if (body.evidence !== undefined) data.evidence = JSON.stringify(body.evidence);
+      if (body.evidenceLinks !== undefined) data.evidenceLinks = JSON.stringify(body.evidenceLinks);
+      if (body.attachments !== undefined) data.attachments = JSON.stringify(body.attachments);
+      if (body.accessList !== undefined) data.accessList = JSON.stringify(body.accessList);
+      if (body.mitigation !== undefined) data.mitigation = JSON.stringify(normalizeMitigation(body.mitigation));
+
+      const updated = await prisma.projectControl.update({ where: { id: existing.id }, data });
+      res.json(serializeProjectControl(updated));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to update project control' });
+    }
+  });
+
+  app.post(
+    '/api/projects/:id/controls/:controlId/attachments',
+    upload.array('files', 10),
+    async (req, res) => {
+      try {
+        const existing = await prisma.projectControl.findFirst({
+          where: { id: req.params.controlId, projectId: req.params.id },
+        });
+        if (!existing) return res.status(404).json({ error: 'Project control not found' });
+
+        const files = (req.files as Express.Multer.File[]) || [];
+        if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+        const current = normalizeAttachments(parseJsonArray(existing.attachments));
+        const added: ControlAttachmentMeta[] = files.map(f => ({
+          id: crypto.randomUUID(),
+          name: f.originalname,
+          storedName: f.filename,
+          size: f.size,
+          mimeType: f.mimetype || 'application/octet-stream',
+          uploadedAt: new Date().toISOString(),
+        }));
+
+        const updated = await prisma.projectControl.update({
+          where: { id: existing.id },
+          data: { attachments: JSON.stringify([...current, ...added]) },
+        });
+        res.status(201).json(serializeProjectControl(updated));
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to upload attachments' });
+      }
+    }
+  );
+
+  app.get('/api/projects/:id/controls/:controlId/attachments/:attachmentId', async (req, res) => {
+    try {
+      const existing = await prisma.projectControl.findFirst({
+        where: { id: req.params.controlId, projectId: req.params.id },
+      });
+      if (!existing) return res.status(404).json({ error: 'Project control not found' });
+
+      const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
+      const att = attachments.find(a => a.id === req.params.attachmentId);
+      if (!att || !att.storedName) return res.status(404).json({ error: 'Attachment not found' });
+
+      const filePath = path.join(controlUploadDir(req.params.id, req.params.controlId), att.storedName);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
+
+      res.download(filePath, att.name);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to download attachment' });
+    }
+  });
+
+  app.delete('/api/projects/:id/controls/:controlId/attachments/:attachmentId', async (req, res) => {
+    try {
+      const existing = await prisma.projectControl.findFirst({
+        where: { id: req.params.controlId, projectId: req.params.id },
+      });
+      if (!existing) return res.status(404).json({ error: 'Project control not found' });
+
+      const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
+      const att = attachments.find(a => a.id === req.params.attachmentId);
+      if (!att) return res.status(404).json({ error: 'Attachment not found' });
+
+      if (att.storedName) {
+        const filePath = path.join(controlUploadDir(req.params.id, req.params.controlId), att.storedName);
+        try { fs.unlinkSync(filePath); } catch { /* ignore missing file */ }
+      }
+
+      const next = attachments.filter(a => a.id !== att.id);
+      const updated = await prisma.projectControl.update({
+        where: { id: existing.id },
+        data: { attachments: JSON.stringify(next) },
+      });
+      res.json(serializeProjectControl(updated));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to delete attachment' });
+    }
+  });
+}

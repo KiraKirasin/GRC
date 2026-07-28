@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// --- Risk Management ---
+
+model RiskCriterion {
+  id            Int    @id @default(autoincrement())
+  category      String
+  categoryKey   String
+  subcategory   String
+  subcategoryKey String
+  criterion     String
+  criterionKey  String
+  source        String
+
+  riskItems RiskItem[]
+}
+
+model RiskItem {
+  id                String  @id @default(cuid())
+  criterionId       Int
+  status            String  @default("identified")
+  inherentLikelihood Int   @default(1)
+  inherentImpact    Int     @default(1)
+  residualLikelihood Int   @default(1)
+  residualImpact    Int     @default(1)
+  owner             String  @default("")
+  treatmentPlan     String  @default("")
+  notes             String  @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  criterion RiskCriterion @relation(fields: [criterionId], references: [id])
+}
+
+// --- Tasks ---
+
+model GRCTask {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  status      String   @default("remaining")
+  priority    String   @default("medium")
+  framework   String   @default("")
+  category    String   @default("")
+  assignee    String   @default("")
+  dueDate     String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --- Controls ---
+
+model GRCControl {
+  id            String   @id @default(cuid())
+  controlCode   String   @unique @default("")
+  title         String
+  description   String   @default("")
+  framework     String   @default("")
+  category      String   @default("")
+  status        String   @default("pending")
+  owner         String   @default("")
+  evidence      String   @default("[]")
+  evidenceLinks String   @default("[]")
+  attachments   String   @default("[]")
+  controlDesign String   @default("")
+  source        String   @default("")
+  accessList    String   @default("[]")
+  lastReviewed  String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// --- Policies ---
+
+model Policy {
+  id           String   @id @default(cuid())
+  title        String
+  version      String   @default("1.0")
+  status       String   @default("draft")
+  framework    String   @default("")
+  owner        String   @default("")
+  description  String   @default("")
+  lastReviewed String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// --- Documents ---
+
+model GRCDocument {
+  id         String   @id @default(cuid())
+  title      String
+  type       String   @default("other")
+  framework  String   @default("")
+  status     String   @default("active")
+  files      String   @default("[]")
+  links      String   @default("[]")
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// --- Automated Checks ---
+
+model AutomatedCheck {
+  id        String   @id @default(cuid())
+  name      String
+  status    String   @default("passed")
+  framework String   @default("")
+  lastRun   DateTime @default(now())
+  details   String   @default("")
+}
+
+// --- Roadmap Milestones ---
+
+model Milestone {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  dueDate     String   @default("")
+  status      String   @default("not_started")
+  framework   String   @default("")
+  progress    Int      @default(0)
+}
+
+// --- Integrations ---
+
+model Integration {
+  id            String   @id @default(cuid())
+  name          String
+  type          String   @default("")
+  connectorType String   @default("")
+  status        String   @default("disconnected")
+  config        String   @default("{}")
+  lastSync      String   @default("")
+  lastError     String   @default("")
+  version       String   @default("")
+}
+
+// --- CISO Copilot ---
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  role      String   @default("user")
+  content   String   @default("")
+  timestamp DateTime @default(now())
+}
+
+// --- Projects / Engagements ---
+
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  company     String   @default("NovaPay LLC")
+  type        String   @default("audit")
+  framework   String   @default("")
+  status      String   @default("created")
+  description String   @default("")
+  owner       String   @default("")
+  team        String   @default("[]")
+  scope       String   @default("{}")
+  tasks       String   @default("[]")
+  reviews     String   @default("[]")
+  findings    String   @default("[]")
+  startDate   String   @default("")
+  targetDate  String   @default("")
+  completedAt String   @default("")
+  progress    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  projectControls ProjectControl[]
+}
+
+// Project-scoped copy of Controls Repository (master data is never mutated)
+model ProjectControl {
+  id              String   @id @default(cuid())
+  projectId       String
+  sourceControlId String   @default("")
+  controlCode     String   @default("")
+  title           String
+  description     String   @default("")
+  framework       String   @default("")
+  category        String   @default("")
+  status          String   @default("pending")
+  owner           String   @default("")
+  evidence        String   @default("[]")
+  evidenceLinks   String   @default("[]")
+  attachments     String   @default("[]")
+  controlDesign   String   @default("")
+  source          String   @default("")
+  accessList      String   @default("[]")
+  lastReviewed    String   @default("")
+  mitigation      String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([framework])
+}

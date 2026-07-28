@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-600: #690DD3;
+  --brand-700: #5E1CAB;
+  --neutral-0: #FFFFFF;
+  --neutral-20: #F5F6F8;
+  --neutral-340: #32383C;
+  --neutral-360: #191B1C;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--neutral-20);
+  color: var(--neutral-360);
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-gray-100 shadow-sm;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2.5 bg-white text-neutral-340 text-sm font-semibold rounded-lg border border-gray-200 hover:bg-neutral-20 transition-colors;
+  }
+
+  .link-brand {
+    @apply text-brand-600 hover:text-brand-700 text-xs font-semibold uppercase tracking-wider transition-colors;
+  }
+
+  .progress-bar {
+    @apply h-2 bg-neutral-20 rounded-full overflow-hidden;
+  }
+
+  .progress-bar-fill {
+    @apply h-full bg-brand-600 rounded-full transition-all;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold;
+  }
+}

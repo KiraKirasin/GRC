@@ -1,0 +1,39 @@
+services:
+  app:
+    build:
+      context: .
+      # Build for the VM's native arch (e2 = amd64; T2A/Ampere = arm64)
+    image: grc-app:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      DATABASE_URL: "file:/data/grc.db"
+      UPLOAD_DIR: /data/uploads/projects
+    volumes:
+      - grc-data:/data
+    expose:
+      - "3001"
+    # Bind only on localhost if Caddy runs on the same host without compose network:
+    # ports:
+    #   - "127.0.0.1:3001:3001"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      GRC_DOMAIN: ${GRC_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  grc-data:
+  caddy-data:
+  caddy-config:

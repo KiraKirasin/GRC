@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+.env
+.env.*
+uploads
+dev.db
+*.db
+*.db-journal
+agent-transcripts
+.cursor
+tsconfig.tsbuildinfo
+src/**/*.test.*
