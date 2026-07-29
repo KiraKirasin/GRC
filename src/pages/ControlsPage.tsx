@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
+import { usePermission } from '../context/AuthContext';
 import { GRCControl, ControlStatus, FRAMEWORKS, frameworksFromControls } from '../types';
 
 const emptyForm: Omit<GRCControl, 'id' | 'createdAt' | 'updatedAt'> = { title: '', description: '', framework: '', category: '', status: 'pending', owner: '', evidence: [], evidenceLinks: [], attachments: [], controlDesign: '', source: '', accessList: [], lastReviewed: '' };
@@ -13,6 +14,8 @@ const statusColors: Record<string, string> = {
 export default function ControlsPage() {
   const { t } = useTranslation();
   const { controls, addControl, updateControl, deleteControl } = useCompliance();
+  const canWrite = usePermission('controls:write');
+  const canDelete = usePermission('controls:delete');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -46,7 +49,9 @@ export default function ControlsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div><h2 className="text-2xl font-bold text-gray-900">{t('controls.title')}</h2><p className="text-sm text-gray-500 mt-1">{t('controls.description')}</p></div>
-        <button onClick={openAdd} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">+ {t('controls.addControl')}</button>
+        {canWrite && (
+          <button onClick={openAdd} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">+ {t('controls.addControl')}</button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">
@@ -86,7 +91,14 @@ export default function ControlsPage() {
                   <td className="py-3 px-4 text-gray-500 text-xs">{c.evidence.length > 0 ? c.evidence.length : '—'}</td>
                   <td className="py-3 px-4 text-gray-500 text-xs">{c.lastReviewed}</td>
                   <td className="py-3 px-4"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[c.status]}`}>{t(`controls.statuses.${c.status}`)}</span></td>
-                  <td className="py-3 px-4"><div className="flex gap-2"><button onClick={() => openEdit(c)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button><button onClick={() => setDeleteConfirm(c.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">{t('common.delete')}</button></div></td>
+                  <td className="py-3 px-4">
+                    {(canWrite || canDelete) && (
+                      <div className="flex gap-2">
+                        {canWrite && <button onClick={() => openEdit(c)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button>}
+                        {canDelete && <button onClick={() => setDeleteConfirm(c.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">{t('common.delete')}</button>}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

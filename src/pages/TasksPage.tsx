@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
+import { usePermission } from '../context/AuthContext';
 import { GRCTask, TaskStatus, TaskPriority, FRAMEWORKS } from '../types';
 
 const emptyForm = { title: '', description: '', status: 'remaining' as TaskStatus, priority: 'medium' as TaskPriority, framework: '', category: '', assignee: '', dueDate: '' };
@@ -16,6 +17,7 @@ const priorityColors: Record<string, string> = {
 export default function TasksPage() {
   const { t } = useTranslation();
   const { tasks, addTask, updateTask, deleteTask } = useCompliance();
+  const canWrite = usePermission('tasks:write');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -44,7 +46,9 @@ export default function TasksPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div><h2 className="text-2xl font-bold text-gray-900">{t('tasks.title')}</h2><p className="text-sm text-gray-500 mt-1">{t('tasks.description')}</p></div>
-        <button onClick={openAdd} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">+ {t('tasks.addTask')}</button>
+        {canWrite && (
+          <button onClick={openAdd} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">+ {t('tasks.addTask')}</button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">
@@ -87,7 +91,14 @@ export default function TasksPage() {
                   <td className="py-3 px-4"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${priorityColors[task.priority]}`}>{t(`tasks.priorities.${task.priority}`)}</span></td>
                   <td className="py-3 px-4 text-gray-500 text-xs">{task.dueDate}</td>
                   <td className="py-3 px-4"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[task.status]}`}>{t(`tasks.statuses.${task.status}`)}</span></td>
-                  <td className="py-3 px-4"><div className="flex gap-2"><button onClick={() => openEdit(task)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button><button onClick={() => setDeleteConfirm(task.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">{t('common.delete')}</button></div></td>
+                  <td className="py-3 px-4">
+                    {canWrite && (
+                      <div className="flex gap-2">
+                        <button onClick={() => openEdit(task)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button>
+                        <button onClick={() => setDeleteConfirm(task.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">{t('common.delete')}</button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

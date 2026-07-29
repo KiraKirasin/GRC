@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useProjects } from '../context/ProjectContext';
 import { useCompliance } from '../context/ComplianceContext';
+import { usePermission } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
 import { PROJECT_STATUSES, ProjectStatus, ProjectReview, ProjectControl, ControlStatus, ControlAttachment, ControlMitigation, EMPTY_MITIGATION, TaskStatus, TaskPriority, FRAMEWORKS, compareDomainsByStandard, compareControlCodes } from '../types';
-
-const API = import.meta.env.VITE_API_URL || '';
 
 const controlStatusColors: Record<string, string> = {
   implemented: 'bg-emerald-100 text-emerald-700', in_progress: 'bg-blue-100 text-blue-700',
@@ -40,6 +40,10 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const { projects, updateProject, updateProjectTask, addProjectTask, addProjectFinding, updateProjectFinding } = useProjects();
   const { controls, addTask, updateTask } = useCompliance();
+  const canWriteControl = usePermission('project-controls:write');
+  const canReviewControl = usePermission('project-controls:review');
+  const canEditControl = canWriteControl || canReviewControl;
+  const canAttach = usePermission('project-controls:attachments');
   const project = projects.find(p => p.id === id);
 
   const [activeTab, setActiveTab] = useState<'tasks' | 'scope' | 'controls' | 'evidence' | 'findings' | 'reviews'>('controls');
@@ -52,6 +56,17 @@ export default function ProjectDetailPage() {
   const [groupByDomain, setGroupByDomain] = useState(true);
   const [collapsedDomains, setCollapsedDomains] = useState<Set<string>>(new Set());
   const [editingControl, setEditingControl] = useState<ProjectControl | null>(null);
+  const [showAddControl, setShowAddControl] = useState(false);
+  const [addMode, setAddMode] = useState<'library' | 'custom'>('library');
+  const [addFrameworks, setAddFrameworks] = useState<{ name: string; shortName?: string; count: number }[]>([]);
+  const [addFwName, setAddFwName] = useState('');
+  const [addLibraryControls, setAddLibraryControls] = useState<{ id: string; controlCode: string; title: string; category: string }[]>([]);
+  const [addLibraryLoading, setAddLibraryLoading] = useState(false);
+  const [addSelectedIds, setAddSelectedIds] = useState<Set<string>>(new Set());
+  const [addLibrarySearch, setAddLibrarySearch] = useState('');
+  const [addCustom, setAddCustom] = useState({ title: '', description: '', framework: '', category: '', controlCode: '', owner: '' });
+  const [addingControl, setAddingControl] = useState(false);
+  const [addControlError, setAddControlError] = useState('');
   const [controlForm, setControlForm] = useState({
     title: '', description: '', framework: '', category: '', owner: '', lastReviewed: '', status: 'pending' as ControlStatus,
     evidence: [] as string[], evidenceLinks: [] as string[],
@@ -92,7 +107,7 @@ export default function ProjectDetailPage() {
   const loadProjectControls = () => {
     if (!id) return;
     setControlsLoading(true);
-    fetch(`${API}/api/projects/${id}/controls`)
+    apiFetch(`/api/projects/${id}/controls`)
       .then(r => r.ok ? r.json() : [])
       .then((data: ProjectControl[]) => setProjectControls(data))
       .catch(() => setProjectControls([]))
@@ -100,6 +115,42 @@ export default function ProjectDetailPage() {
   };
 
   useEffect(() => { loadProjectControls(); }, [id]);
+
+  useEffect(() => {
+    if (!showAddControl) return;
+    apiFetch('/api/frameworks')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: { name: string; shortName?: string; count: number }[]) => {
+        setAddFrameworks(data);
+        const initial = project?.framework || data[0]?.name || '';
+        setAddFwName(prev => prev || initial);
+        setAddCustom(c => ({ ...c, framework: c.framework || initial }));
+      })
+      .catch(() => setAddFrameworks([]));
+  }, [showAddControl, project?.framework]);
+
+  useEffect(() => {
+    if (!showAddControl || addMode !== 'library' || !addFwName) {
+      setAddLibraryControls([]);
+      setAddSelectedIds(new Set());
+      return;
+    }
+    setAddLibraryLoading(true);
+    setAddLibrarySearch('');
+    apiFetch(`/api/frameworks/controls?framework=${encodeURIComponent(addFwName)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: { id: string; controlCode: string; title: string; category: string }[]) => {
+        const already = new Set(projectControls.map(c => c.sourceControlId).filter(Boolean));
+        const available = data.filter(c => !already.has(c.id));
+        setAddLibraryControls(available);
+        setAddSelectedIds(new Set());
+      })
+      .catch(() => {
+        setAddLibraryControls([]);
+        setAddSelectedIds(new Set());
+      })
+      .finally(() => setAddLibraryLoading(false));
+  }, [showAddControl, addMode, addFwName, projectControls]);
 
   if (!project) {
     return (
@@ -294,6 +345,74 @@ export default function ProjectDetailPage() {
     });
   };
 
+  const openAddControl = () => {
+    setAddControlError('');
+    setAddMode('library');
+    setAddSelectedIds(new Set());
+    setAddLibrarySearch('');
+    setAddCustom({
+      title: '', description: '', framework: project.framework || '', category: '', controlCode: '', owner: project.owner || '',
+    });
+    setAddFwName(project.framework || '');
+    setShowAddControl(true);
+  };
+
+  const filteredAddLibrary = (() => {
+    const q = addLibrarySearch.toLowerCase().trim();
+    if (!q) return addLibraryControls;
+    return addLibraryControls.filter(c =>
+      c.title.toLowerCase().includes(q) ||
+      (c.controlCode || '').toLowerCase().includes(q) ||
+      (c.category || '').toLowerCase().includes(q)
+    );
+  })();
+
+  const handleAddControls = async () => {
+    if (!id) return;
+    setAddingControl(true);
+    setAddControlError('');
+    try {
+      let res: Response;
+      if (addMode === 'library') {
+        if (addSelectedIds.size === 0) {
+          setAddControlError(t('projects.selectControls'));
+          setAddingControl(false);
+          return;
+        }
+        res = await apiFetch(`/api/projects/${id}/controls`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceControlIds: [...addSelectedIds], framework: addFwName }),
+        });
+      } else {
+        if (!addCustom.title.trim()) {
+          setAddControlError(t('projects.customControlTitle'));
+          setAddingControl(false);
+          return;
+        }
+        res = await apiFetch(`/api/projects/${id}/controls`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(addCustom),
+        });
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAddControlError(err.error || t('projects.addControlFailed'));
+        return;
+      }
+      setShowAddControl(false);
+      loadProjectControls();
+      updateProject(project.id, {
+        controlCount: (project.controlCount || projectControls.length) + (addMode === 'library' ? addSelectedIds.size : 1),
+      });
+    } catch {
+      setAddControlError(t('projects.addControlFailed'));
+    } finally {
+      setAddingControl(false);
+    }
+  };
+
   const setMitigationEnabled = (enabled: boolean) => {
     if (!enabled) {
       setControlForm({
@@ -331,7 +450,7 @@ export default function ProjectDetailPage() {
     try {
       const body = new FormData();
       Array.from(files).forEach(f => body.append('files', f));
-      const res = await fetch(`${API}/api/projects/${project!.id}/controls/${editingControl.id}/attachments`, {
+      const res = await apiFetch(`/api/projects/${project!.id}/controls/${editingControl.id}/attachments`, {
         method: 'POST',
         body,
       });
@@ -352,8 +471,8 @@ export default function ProjectDetailPage() {
     if (!editingControl) return;
     setAttachmentError('');
     try {
-      const res = await fetch(
-        `${API}/api/projects/${project!.id}/controls/${editingControl.id}/attachments/${att.id}`,
+      const res = await apiFetch(
+        `/api/projects/${project!.id}/controls/${editingControl.id}/attachments/${att.id}`,
         { method: 'DELETE' },
       );
       if (!res.ok) {
@@ -368,7 +487,7 @@ export default function ProjectDetailPage() {
   };
 
   const attachmentUrl = (controlId: string, att: ControlAttachment) =>
-    `${API}/api/projects/${project!.id}/controls/${controlId}/attachments/${att.id}`;
+    `/api/projects/${project!.id}/controls/${controlId}/attachments/${att.id}`;
 
   const formatFileSize = (bytes: number) => {
     if (!bytes) return '';
@@ -410,9 +529,8 @@ export default function ProjectDetailPage() {
         }
       }
 
-      const res = await fetch(`${API}/api/projects/${project.id}/controls/${editingControl.id}`, {
+      const res = await apiFetch(`/api/projects/${project.id}/controls/${editingControl.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...controlForm, mitigation }),
       });
       if (res.ok) {
@@ -526,6 +644,15 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-gray-500 mt-0.5">{t('projects.projectControlsNote')}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {canWriteControl && (
+                <button
+                  type="button"
+                  onClick={openAddControl}
+                  className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium"
+                >
+                  + {t('projects.addControl')}
+                </button>
+              )}
               <label className="inline-flex items-center gap-2 text-sm text-gray-700 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -664,7 +791,9 @@ export default function ProjectDetailPage() {
                                   </span>
                                 </td>
                                 <td className="py-2 px-3">
+                                  {canEditControl && (
                                   <button onClick={() => openEditControl(c)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -711,7 +840,9 @@ export default function ProjectDetailPage() {
                         </span>
                       </td>
                       <td className="py-2 px-3">
+                        {canEditControl && (
                         <button onClick={() => openEditControl(c)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">{t('common.edit')}</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -823,7 +954,9 @@ export default function ProjectDetailPage() {
                                   </div>
                                   <p className="text-xs text-gray-400 mt-1">{c.owner || '—'}</p>
                                 </div>
+                                {canEditControl && (
                                 <button onClick={() => openEditControl(c)} className="text-xs text-brand-600 font-medium shrink-0">{t('common.edit')}</button>
+                                )}
                               </div>
                               {hasEvidence && (
                                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -873,7 +1006,9 @@ export default function ProjectDetailPage() {
                       </div>
                       <p className="text-xs text-gray-400 mt-1">{c.framework} · {c.category} · {c.owner}</p>
                     </div>
+                    {canEditControl && (
                     <button onClick={() => openEditControl(c)} className="text-xs text-brand-600 font-medium shrink-0">{t('common.edit')}</button>
+                    )}
                   </div>
                   {hasEvidence && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1312,6 +1447,170 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {showAddControl && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
+          <div className="bg-white rounded-xl p-6 shadow-xl max-w-2xl w-full mx-4 my-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">{t('projects.addControlTitle')}</h3>
+              <button onClick={() => setShowAddControl(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => { setAddMode('library'); setAddControlError(''); }}
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium ${addMode === 'library' ? 'bg-brand-100 text-brand-800' : 'bg-gray-100 text-gray-600'}`}
+              >
+                {t('projects.addFromLibrary')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAddMode('custom'); setAddControlError(''); }}
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium ${addMode === 'custom' ? 'bg-brand-100 text-brand-800' : 'bg-gray-100 text-gray-600'}`}
+              >
+                {t('projects.addCustomControl')}
+              </button>
+            </div>
+
+            {addMode === 'library' ? (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">{t('projects.addControlLibraryHint')}</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.framework')}</label>
+                  <select
+                    value={addFwName}
+                    onChange={e => setAddFwName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    {addFrameworks.map(fw => (
+                      <option key={fw.name} value={fw.name}>{fw.shortName || fw.name} — {fw.count}</option>
+                    ))}
+                  </select>
+                </div>
+                <input
+                  type="text"
+                  value={addLibrarySearch}
+                  onChange={e => setAddLibrarySearch(e.target.value)}
+                  placeholder={t('common.search')}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                />
+                {addLibraryLoading ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">{t('common.loading')}</p>
+                ) : filteredAddLibrary.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">{t('projects.noLibraryControlsLeft')}</p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                    {filteredAddLibrary.map(c => (
+                      <label key={c.id} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={addSelectedIds.has(c.id)}
+                          onChange={() => {
+                            setAddSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(c.id)) next.delete(c.id);
+                              else next.add(c.id);
+                              return next;
+                            });
+                          }}
+                          className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm text-gray-900">
+                            {c.controlCode ? <span className="font-mono text-xs text-gray-500 mr-1.5">{c.controlCode}</span> : null}
+                            {c.title}
+                          </span>
+                          {c.category && <span className="text-[11px] text-gray-400">{c.category}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">{t('projects.selectedControlsCount', { selected: addSelectedIds.size, total: addLibraryControls.length })}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">{t('projects.addControlCustomHint')}</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.customControlTitle')}</label>
+                  <input
+                    type="text"
+                    value={addCustom.title}
+                    onChange={e => setAddCustom({ ...addCustom, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.customControlCode')}</label>
+                    <input
+                      type="text"
+                      value={addCustom.controlCode}
+                      onChange={e => setAddCustom({ ...addCustom, controlCode: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.framework')}</label>
+                    <select
+                      value={addCustom.framework}
+                      onChange={e => setAddCustom({ ...addCustom, framework: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      {addFrameworks.map(fw => (
+                        <option key={fw.name} value={fw.name}>{fw.shortName || fw.name}</option>
+                      ))}
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.category')}</label>
+                  <input
+                    type="text"
+                    value={addCustom.category}
+                    onChange={e => setAddCustom({ ...addCustom, category: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.description')}</label>
+                  <textarea
+                    value={addCustom.description}
+                    onChange={e => setAddCustom({ ...addCustom, description: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.owner')}</label>
+                  <input
+                    type="text"
+                    value={addCustom.owner}
+                    onChange={e => setAddCustom({ ...addCustom, owner: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {addControlError && <p className="text-sm text-red-600 mt-3">{addControlError}</p>}
+            <div className="flex justify-end gap-3 mt-5">
+              <button type="button" onClick={() => setShowAddControl(false)} className="px-4 py-2 text-sm text-gray-600">{t('common.cancel')}</button>
+              <button
+                type="button"
+                onClick={handleAddControls}
+                disabled={addingControl}
+                className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+              >
+                {addingControl ? t('common.loading') : t('projects.addControl')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingControl && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-xl w-full mx-4 my-8">
@@ -1535,6 +1834,7 @@ export default function ProjectDetailPage() {
                             {[formatFileSize(att.size), att.uploadedAt ? new Date(att.uploadedAt).toLocaleString() : ''].filter(Boolean).join(' · ')}
                           </span>
                         </div>
+                        {canAttach && (
                         <button
                           type="button"
                           onClick={() => deleteControlAttachment(att)}
@@ -1542,10 +1842,12 @@ export default function ProjectDetailPage() {
                         >
                           {t('common.delete')}
                         </button>
+                        )}
                       </li>
                     ))}
                   </ul>
                 )}
+                {canAttach && (
                 <label className="inline-flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
                   <input
                     type="file"
@@ -1559,6 +1861,7 @@ export default function ProjectDetailPage() {
                   />
                   {uploadingFiles ? t('projects.uploading') : `+ ${t('projects.addAttachments')}`}
                 </label>
+                )}
                 {attachmentError && <p className="text-xs text-red-600 mt-1.5">{attachmentError}</p>}
               </div>
               <div className="flex justify-end gap-3 pt-2">

@@ -11,18 +11,23 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "preview": "vite preview",
     "seed": "npx tsx prisma/seed.ts",
+    "seed-users": "npx tsx prisma/seed-users.ts",
     "import-controls": "npx tsx prisma/import-controls.ts",
-    "import-pci": "npx tsx prisma/import-pci-controls.ts"
+    "import-pci": "npx tsx prisma/import-pci-controls.ts",
+    "import-nbu95": "npx tsx prisma/import-nbu95-controls.ts",
+    "import-nbu187": "npx tsx prisma/import-nbu187-controls.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
     "@prisma/adapter-libsql": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
     "concurrently": "^10.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "i18next": "^24.2.3",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "prisma": "^7.8.0",
     "react": "^19.1.0",
@@ -33,8 +38,10 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",

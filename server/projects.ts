@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import multer from 'multer';
+import { requirePermission } from './auth/middleware.js';
 import {
   PROJECT_FRAMEWORK_OPTIONS,
   filterControlsForFramework,
@@ -179,6 +180,33 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
+  app.get('/api/frameworks/controls', async (req, res) => {
+    try {
+      const framework = String(req.query.framework || '').trim();
+      if (!framework) {
+        return res.status(400).json({ error: 'framework query parameter is required' });
+      }
+      const allControls = await prisma.gRCControl.findMany({
+        orderBy: [{ controlCode: 'asc' }, { title: 'asc' }],
+      });
+      const matched = filterControlsForFramework(allControls, framework);
+      res.json(matched.map(c => ({
+        id: c.id,
+        controlCode: c.controlCode,
+        title: c.title,
+        description: c.description,
+        framework: c.framework,
+        category: c.category,
+        source: c.source,
+        status: c.status,
+        owner: c.owner,
+      })));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to load framework controls' });
+    }
+  });
+
   app.get('/api/projects', async (_req, res) => {
     try {
       const projects = await prisma.project.findMany({
@@ -192,7 +220,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.post('/api/projects', async (req, res) => {
+  app.post('/api/projects', requirePermission('projects:write'), async (req, res) => {
     try {
       const body = req.body;
       const framework = String(body.framework || '').trim();
@@ -203,12 +231,22 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       const allControls = await prisma.gRCControl.findMany({
         orderBy: [{ controlCode: 'asc' }, { title: 'asc' }],
       });
-      const masterControls = filterControlsForFramework(allControls, framework);
+      const frameworkControls = filterControlsForFramework(allControls, framework);
       const frameworkMeta = findFrameworkOption(framework);
       const projectFramework = frameworkMeta?.name || framework;
 
-      if (masterControls.length === 0) {
-        return res.status(400).json({ error: `No controls found in Controls Repository for framework: ${framework}` });
+      // controlIds: string[] — selected controls; omit = all; [] = none
+      let masterControls = frameworkControls;
+      if (Array.isArray(body.controlIds)) {
+        const idSet = new Set(body.controlIds.map((id: unknown) => String(id)));
+        masterControls = frameworkControls.filter(c => idSet.has(c.id));
+        if (body.controlIds.length > 0 && masterControls.length === 0) {
+          return res.status(400).json({ error: 'None of the selected controls belong to this framework' });
+        }
+      } else if (frameworkControls.length === 0) {
+        return res.status(400).json({
+          error: `No controls found in Controls Repository for framework: ${framework}. Select another framework or create the project and add custom controls later.`,
+        });
       }
 
       const scope = {
@@ -286,7 +324,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.patch('/api/projects/:id', async (req, res) => {
+  app.patch('/api/projects/:id', requirePermission('projects:write'), async (req, res) => {
     try {
       const body = req.body;
       const data: Record<string, string | number> = {};
@@ -309,7 +347,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.delete('/api/projects/:id', async (req, res) => {
+  app.delete('/api/projects/:id', requirePermission('projects:delete'), async (req, res) => {
     try {
       await prisma.project.delete({ where: { id: req.params.id } });
       res.status(204).end();
@@ -332,7 +370,143 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.patch('/api/projects/:id/controls/:controlId', async (req, res) => {
+  app.post('/api/projects/:id/controls', requirePermission('project-controls:write'), async (req, res) => {
+    try {
+      const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+
+      const body = req.body || {};
+      const createdControls: ReturnType<typeof serializeProjectControl>[] = [];
+
+      const sourceIds: string[] = Array.isArray(body.sourceControlIds)
+        ? body.sourceControlIds.map((id: unknown) => String(id))
+        : body.sourceControlId
+          ? [String(body.sourceControlId)]
+          : [];
+
+      if (sourceIds.length > 0) {
+        const masters = await prisma.gRCControl.findMany({ where: { id: { in: sourceIds } } });
+        if (masters.length === 0) {
+          return res.status(400).json({ error: 'No matching controls found in Controls Repository' });
+        }
+
+        const existing = await prisma.projectControl.findMany({
+          where: { projectId: project.id, sourceControlId: { in: sourceIds } },
+          select: { sourceControlId: true },
+        });
+        const already = new Set(existing.map(e => e.sourceControlId));
+        const toAdd = masters.filter(m => !already.has(m.id));
+
+        for (const c of toAdd) {
+          const fwMeta = findFrameworkOption(c.framework) || findFrameworkOption(String(body.framework || ''));
+          const fw = fwMeta?.name || c.framework || project.framework;
+          const row = await prisma.projectControl.create({
+            data: {
+              projectId: project.id,
+              sourceControlId: c.id,
+              controlCode: c.controlCode || '',
+              title: c.title,
+              description: c.description,
+              framework: fw,
+              category: c.category,
+              status: c.status || 'pending',
+              owner: c.owner,
+              evidence: c.evidence,
+              evidenceLinks: c.evidenceLinks,
+              attachments: c.attachments,
+              controlDesign: c.controlDesign,
+              source: c.source,
+              accessList: c.accessList,
+              lastReviewed: c.lastReviewed,
+            },
+          });
+          createdControls.push(serializeProjectControl(row));
+        }
+      } else if (body.title) {
+        // Custom / manual control (not in library)
+        const title = String(body.title).trim();
+        if (!title) return res.status(400).json({ error: 'Title is required for a custom control' });
+        const fwMeta = findFrameworkOption(String(body.framework || project.framework || ''));
+        const fw = fwMeta?.name || String(body.framework || project.framework || 'Other');
+        const row = await prisma.projectControl.create({
+          data: {
+            projectId: project.id,
+            sourceControlId: '',
+            controlCode: String(body.controlCode || '').trim(),
+            title,
+            description: String(body.description || ''),
+            framework: fw,
+            category: String(body.category || ''),
+            status: String(body.status || 'pending'),
+            owner: String(body.owner || ''),
+            evidence: '[]',
+            evidenceLinks: '[]',
+            attachments: '[]',
+            controlDesign: String(body.controlDesign || ''),
+            source: String(body.source || 'Custom'),
+            accessList: '[]',
+            lastReviewed: '',
+          },
+        });
+        createdControls.push(serializeProjectControl(row));
+      } else {
+        return res.status(400).json({
+          error: 'Provide sourceControlId / sourceControlIds from the library, or title for a custom control',
+        });
+      }
+
+      // Keep project.scope.frameworks / controls in sync
+      const scope = parseJsonObject(project.scope, {
+        businessUnits: [], systems: [], assets: [], frameworks: [], controls: [], policies: [], vendors: [],
+      }) as {
+        businessUnits: string[]; systems: string[]; assets: string[];
+        frameworks: string[]; controls: string[]; policies: string[]; vendors: string[];
+      };
+      const fwSet = new Set(scope.frameworks || []);
+      const ctrlSet = new Set(scope.controls || []);
+      for (const c of createdControls) {
+        const fw = String(c.framework || '');
+        if (fw) fwSet.add(fw);
+        ctrlSet.add(String(c.controlCode || c.title || ''));
+      }
+      await prisma.project.update({
+        where: { id: project.id },
+        data: {
+          scope: JSON.stringify({
+            ...scope,
+            frameworks: [...fwSet],
+            controls: [...ctrlSet].filter(Boolean),
+          }),
+        },
+      });
+
+      res.status(201).json(createdControls.length === 1 ? createdControls[0] : createdControls);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to add project control' });
+    }
+  });
+
+  app.delete('/api/projects/:id/controls/:controlId', requirePermission('project-controls:write'), async (req, res) => {
+    try {
+      const existing = await prisma.projectControl.findFirst({
+        where: { id: req.params.controlId, projectId: req.params.id },
+      });
+      if (!existing) return res.status(404).json({ error: 'Project control not found' });
+
+      const dir = controlUploadDir(req.params.id, req.params.controlId);
+      if (fs.existsSync(dir)) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
+      await prisma.projectControl.delete({ where: { id: existing.id } });
+      res.status(204).end();
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to delete project control' });
+    }
+  });
+
+  app.patch('/api/projects/:id/controls/:controlId', requirePermission('project-controls:write', 'project-controls:review'), async (req, res) => {
     try {
       const body = req.body;
       const existing = await prisma.projectControl.findFirst({
@@ -360,6 +534,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
   app.post(
     '/api/projects/:id/controls/:controlId/attachments',
+    requirePermission('project-controls:attachments'),
     upload.array('files', 10),
     async (req, res) => {
       try {
@@ -414,7 +589,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.delete('/api/projects/:id/controls/:controlId/attachments/:attachmentId', async (req, res) => {
+  app.delete('/api/projects/:id/controls/:controlId/attachments/:attachmentId', requirePermission('project-controls:attachments'), async (req, res) => {
     try {
       const existing = await prisma.projectControl.findFirst({
         where: { id: req.params.controlId, projectId: req.params.id },

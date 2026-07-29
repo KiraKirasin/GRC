@@ -84,6 +84,7 @@ export type ControlStatus = 'implemented' | 'in_progress' | 'pending' | 'not_app
 
 export const CONTROL_FRAMEWORKS = [
   { name: 'NBU Resolution №95', shortName: 'НБУ №95', color: 'bg-brand-500' },
+  { name: 'NBU Resolution №187', shortName: 'НБУ №187', color: 'bg-violet-500' },
   { name: 'NBU Resolution №143', shortName: 'НБУ №143', color: 'bg-blue-500' },
   { name: 'PCI DSS 4.0', shortName: 'PCI DSS', color: 'bg-pink-500' },
   { name: 'ISO 27001', shortName: 'ISO 27001', color: 'bg-emerald-500' },
@@ -446,6 +447,7 @@ export function getRiskLevelColor(score: number): string {
 export const FRAMEWORKS = [
   { name: 'Enterprise Control Library', shortName: 'ECL', color: 'bg-indigo-500' },
   { name: 'NBU Resolution №95', shortName: 'НБУ №95', color: 'bg-brand-500' },
+  { name: 'NBU Resolution №187', shortName: 'НБУ №187', color: 'bg-violet-500' },
   { name: 'NBU Resolution №143', shortName: 'НБУ №143', color: 'bg-blue-500' },
   { name: 'PCI DSS 4.0', shortName: 'PCI DSS', color: 'bg-pink-500' },
   { name: 'ISO 27001', shortName: 'ISO 27001', color: 'bg-emerald-500' },

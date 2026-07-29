@@ -2,8 +2,8 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import {
   GRCTask, GRCControl, Policy, GRCDocument, AutomatedCheck,
   Milestone, Integration, ChatMessage,
-  TaskStatus, TaskPriority, ControlStatus, PolicyStatus,
 } from '../types';
+import { apiFetch } from '../lib/api';
 
 interface ComplianceContextType {
   tasks: GRCTask[];
@@ -40,8 +40,6 @@ interface ComplianceContextType {
 }
 
 const ComplianceContext = createContext<ComplianceContextType | undefined>(undefined);
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
 
@@ -251,7 +249,7 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { localStorage.setItem('grc-tasks', JSON.stringify(tasks)); }, [tasks]);
   useEffect(() => {
-    fetch(`${API_BASE}/api/controls`)
+    apiFetch('/api/controls')
       .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load controls')))
       .then((data: GRCControl[]) => {
         setControls(data);
@@ -280,7 +278,7 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
 
   const addControl = useCallback(async (d: Omit<GRCControl, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      const res = await fetch(`${API_BASE}/api/controls`, {
+      const res = await apiFetch('/api/controls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(d),
@@ -296,7 +294,7 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
   }, []);
   const updateControl = useCallback(async (id: string, d: Partial<GRCControl>) => {
     try {
-      const res = await fetch(`${API_BASE}/api/controls/${id}`, {
+      const res = await apiFetch(`/api/controls/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(d),
@@ -311,7 +309,7 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
   }, []);
   const deleteControl = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/controls/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/controls/${id}`, { method: 'DELETE' });
       if (res.ok || res.status === 204) {
         setControls(prev => prev.filter(c => c.id !== id));
         return;

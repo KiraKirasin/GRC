@@ -5,6 +5,9 @@ import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { registerProjectRoutes } from './projects.js';
+import { authenticateUnlessPublic } from './auth/middleware.js';
+import { registerAuthRoutes } from './auth/routes.js';
+import { requirePermission } from './auth/middleware.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
@@ -13,6 +16,9 @@ const prisma = new PrismaClient({ adapter });
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(authenticateUnlessPublic);
+
+registerAuthRoutes(app, prisma);
 
 function parseJsonArray<T>(value: string, fallback: T[] = []): T[] {
   try {
@@ -47,7 +53,7 @@ app.get('/api/controls', async (_req, res) => {
   }
 });
 
-app.post('/api/controls', async (req, res) => {
+app.post('/api/controls', requirePermission('controls:write'), async (req, res) => {
   try {
     const body = req.body;
     const created = await prisma.gRCControl.create({
@@ -75,7 +81,7 @@ app.post('/api/controls', async (req, res) => {
   }
 });
 
-app.patch('/api/controls/:id', async (req, res) => {
+app.patch('/api/controls/:id', requirePermission('controls:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body;
@@ -96,7 +102,7 @@ app.patch('/api/controls/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/controls/:id', async (req, res) => {
+app.delete('/api/controls/:id', requirePermission('controls:delete'), async (req, res) => {
   try {
     await prisma.gRCControl.delete({ where: { id: req.params.id } });
     res.status(204).end();

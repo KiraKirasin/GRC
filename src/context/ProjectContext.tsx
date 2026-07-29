@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Project, ProjectTask, ProjectReview, ProjectFinding } from '../types';
+import { apiFetch } from '../lib/api';
 
 interface ProjectContextType {
   projects: Project[];
-  addProject: (p: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'tasks' | 'reviews' | 'findings' | 'progress'>) => Promise<Project | null>;
+  addProject: (p: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'tasks' | 'reviews' | 'findings' | 'progress'> & { controlIds?: string[] }) => Promise<Project | null>;
   companies: Project['company'][];
   updateProject: (id: string, d: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -15,7 +16,6 @@ interface ProjectContextType {
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
-const API = import.meta.env.VITE_API_URL || '';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
 
@@ -117,9 +117,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const companies = [...new Set(projects.map(p => p.company))] as Project['company'][];
 
-  const addProject = useCallback(async (p: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'tasks' | 'reviews' | 'findings' | 'progress'>) => {
+  const addProject = useCallback(async (p: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'tasks' | 'reviews' | 'findings' | 'progress'> & { controlIds?: string[] }) => {
     try {
-      const res = await fetch(`${API}/api/projects`, {
+      const res = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(p),
@@ -147,7 +147,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const deleteProject = useCallback(async (id: string) => {
     try {
-      await fetch(`${API}/api/projects/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
     } catch { /* local delete still proceeds */ }
     setProjects(prev => prev.filter(p => p.id !== id));
   }, []);

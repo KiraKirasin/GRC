@@ -6,6 +6,19 @@ datasource db {
   provider = "sqlite"
 }
 
+// --- Authentication ---
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("auditor")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // --- Risk Management ---
 
 model RiskCriterion {

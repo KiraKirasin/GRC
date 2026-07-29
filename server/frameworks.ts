@@ -7,6 +7,12 @@ export const PROJECT_FRAMEWORK_OPTIONS = [
     sourcePatterns: [/NBU\s*[№#]?\s*95\b/i, /№\s*95\b/],
   },
   {
+    name: 'NBU Resolution №187',
+    shortName: 'НБУ №187',
+    aliases: ['NBU Resolution №187', 'НБУ №187', 'NBU №187', 'NBU 187'],
+    sourcePatterns: [/NBU\s*[№#]?\s*187\b/i, /№\s*187\b/],
+  },
+  {
     name: 'NBU Resolution №143',
     shortName: 'НБУ №143',
     aliases: ['NBU Resolution №143', 'НБУ №143', 'NBU №143', 'NBU 143'],
