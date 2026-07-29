@@ -7,7 +7,7 @@ import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { registerProjectRoutes } from './projects.js';
 
 const PORT = Number(process.env.PORT || 3100);
-const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./dev.db' });
+const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 const app = express();

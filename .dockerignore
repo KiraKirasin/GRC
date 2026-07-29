@@ -6,7 +6,6 @@ dist
 .env
 .env.*
 uploads
-dev.db
 *.db
 *.db-journal
 agent-transcripts

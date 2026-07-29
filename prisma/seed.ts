@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
 
-const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./dev.db' });
+const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 console.log('Connecting:', process.env.DATABASE_URL);

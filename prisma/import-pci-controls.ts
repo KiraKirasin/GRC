@@ -4,7 +4,7 @@ import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { PCI_DSS_CONTROLS } from './pci-dss-controls.js';
 
 const FRAMEWORK = 'PCI DSS 4.0';
-const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./dev.db' });
+const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {

@@ -7,7 +7,7 @@ import XLSX from 'xlsx';
 const DEFAULT_XLSX = '/Users/kirasavchenko/Library/Mobile Documents/com~apple~CloudDocs/NovaPay/NBU/NovaPay_Enterprise_Control_Library (1).xlsx';
 const FRAMEWORK = 'Enterprise Control Library';
 
-const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./dev.db' });
+const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 type ExcelRow = Record<string, unknown>;

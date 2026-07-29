@@ -6,7 +6,6 @@ dist
 
 /src/generated/prisma
 uploads
-dev.db
 *.db
 *.db-journal
 tsconfig.tsbuildinfo
