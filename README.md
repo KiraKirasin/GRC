@@ -32,9 +32,56 @@ Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 | Frontend | React 19, Vite, Tailwind CSS, React Router |
 | Backend | Express 5, TypeScript |
 | Database | SQLite (libSQL) via Prisma |
+| Auth | JWT, bcrypt, RBAC + company-scoped access |
 | i18n | i18next |
 | File uploads | multer |
 | Production | Docker, Caddy (TLS reverse proxy) |
+
+## Architecture
+
+NovaPay GRC is a single-VM pilot: a React SPA and Express API backed by SQLite, fronted by Caddy on GCP Compute Engine.
+
+```mermaid
+flowchart TB
+  Browser["Browser\nReact SPA"]
+  Caddy["Caddy\nTLS / reverse proxy"]
+  Express["Express API\nNode 22 + tsx"]
+  Auth["Auth / RBAC\nJWT + roles"]
+  SPA["Static SPA\nVite dist/"]
+  Prisma["Prisma\nORM + libSQL"]
+  SQLite[("SQLite\n/data/grc.db")]
+  Uploads["Uploads\n/data/uploads"]
+
+  Browser --> Caddy
+  Caddy --> Express
+  Express --> Auth
+  Express --> SPA
+  Express --> Prisma
+  Prisma --> SQLite
+  Express --> Uploads
+```
+
+**Request path:** HTTPS → Caddy → Express (`:3001`) → JWT auth middleware → Prisma → SQLite / file uploads.
+
+**Data model (API-backed):** `User` (role + company ACL), `GRCControl` (master controls repository), `Project`, `ProjectControl` (project-scoped copies with evidence). Some UI modules (e.g. parts of risks/tasks) still use client-side seed data.
+
+**Security:** Five roles (`admin`, `approver`, `implementer`, `reviewer`, `auditor`) with a permission matrix. Non-admin users are scoped to assigned companies; projects are filtered server-side by company access.
+
+**Deployment:** Docker Compose runs two containers (`app` + `caddy`). Persistent data lives in the `grc-data` volume at `/data`. See [docs/deploy-gcp.md](docs/deploy-gcp.md).
+
+### Interactive architecture canvas (Cursor)
+
+An interactive architecture diagram with the full technology stack, data flows, domain model, and deployment topology is available as a **Cursor Canvas**:
+
+`~/.cursor/projects/Users-kirasavchenko-Documents-GRC/canvases/grc-architecture.canvas.tsx`
+
+Open this file in Cursor to view the diagram beside the chat. It includes:
+
+- System context diagram (Browser → Caddy → Express → Auth / Prisma → SQLite)
+- Technology stack table
+- Read/write data flow walkthroughs
+- Domain model and RBAC + multi-company access notes
+- GCP deployment topology
 
 ## Prerequisites
 
