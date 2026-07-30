@@ -19,14 +19,18 @@ const NAV_ITEMS = [
 ] as const;
 
 const ADMIN_NAV_ITEMS = [
-  { to: '/users', label: 'nav.users', icon: '👥' },
-  { to: '/integrations', label: 'nav.integrations', icon: '🔗' },
+  { to: '/audit-logs', label: 'nav.auditLogs', icon: '📋', permission: 'audit:read' as const },
+  { to: '/users', label: 'nav.users', icon: '👥', permission: 'users:manage' as const },
+  { to: '/integrations', label: 'nav.integrations', icon: '🔗', permission: 'users:manage' as const },
 ] as const;
 
 export default function Layout() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const isAdmin = usePermission('users:manage');
+  const canManageUsers = usePermission('users:manage');
+  const canReadAudit = usePermission('audit:read');
+  const isAdmin = user?.role === 'admin' || canManageUsers;
+  const showAdmin = isAdmin || canReadAudit;
 
   const sideLink = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -34,6 +38,10 @@ export default function Layout() {
         ? 'bg-brand-600/15 text-brand-600'
         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
     }`;
+
+  const companyCount = user
+    ? Object.keys(user.companies || {}).length || (user.role === 'admin' ? 4 : 0)
+    : 0;
 
   return (
     <div className="min-h-screen flex bg-neutral-20">
@@ -65,12 +73,15 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          {isAdmin && (
+          {showAdmin && (
             <>
               <div className="pt-4 pb-1 px-3">
                 <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">{t('nav.admin')}</p>
               </div>
-              {ADMIN_NAV_ITEMS.map((item) => (
+              {ADMIN_NAV_ITEMS.filter(item => {
+                if (item.permission === 'audit:read') return canReadAudit || isAdmin;
+                return isAdmin;
+              }).map((item) => (
                 <NavLink key={item.to} to={item.to} className={sideLink}>
                   <span className="text-base leading-none">{item.icon}</span>
                   {t(item.label)}
@@ -90,6 +101,9 @@ export default function Layout() {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{user.name}</p>
                 <p className="text-[11px] text-gray-400 capitalize">{roleLabel(user.role)}</p>
+                <p className="text-[10px] text-gray-400 truncate">
+                  {companyCount} {t('auth.companiesLabel').toLowerCase()}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">

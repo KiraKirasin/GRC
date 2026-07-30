@@ -353,9 +353,11 @@ export default function ProjectDetailPage() {
           source: 'database',
         });
       }
-      for (const file of c.attachments) {
+      for (const att of c.attachments || []) {
+        const name = typeof att === 'string' ? att : (att as { name?: string })?.name;
+        if (!name) continue;
         pushOption({
-          value: file,
+          value: name,
           controlTitle: c.title,
           controlCode: c.controlCode,
           framework: c.framework,
@@ -1891,19 +1893,37 @@ export default function ProjectDetailPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t('controls.evidence')} (files, comma-separated)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('controls.evidence')}</label>
+                <p className="text-xs text-gray-500 mb-1.5">{t('projects.evidenceStartTyping')}</p>
                 <div className="relative mb-2">
                   <input
                     type="search"
                     value={evidenceDbSearch}
                     onChange={e => setEvidenceDbSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const first = filteredEvidencePickerOptions.find(opt =>
+                          !controlForm.evidence.some(ev => ev.toLowerCase() === opt.value.toLowerCase())
+                        );
+                        if (first) addEvidenceItem(first.value);
+                        else if (evidenceDbSearch.trim()) addEvidenceItem(evidenceDbSearch);
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
                     placeholder={t('projects.searchEvidenceDb')}
+                    autoComplete="off"
                   />
                   {evidenceDbSearch.trim() && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                       {filteredEvidencePickerOptions.length === 0 ? (
-                        <p className="px-3 py-2 text-sm text-gray-400">{t('projects.noEvidenceSearchResults')}</p>
+                        <button
+                          type="button"
+                          onClick={() => addEvidenceItem(evidenceDbSearch)}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          {t('projects.addEvidenceAsTyped', { name: evidenceDbSearch.trim() })}
+                        </button>
                       ) : (
                         filteredEvidencePickerOptions.map(opt => {
                           const alreadyAdded = controlForm.evidence.some(
@@ -1956,6 +1976,7 @@ export default function ProjectDetailPage() {
                     ))}
                   </div>
                 )}
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('projects.evidenceManualLabel')}</label>
                 <input
                   type="text"
                   value={controlForm.evidence.join(', ')}
@@ -1963,8 +1984,8 @@ export default function ProjectDetailPage() {
                     ...controlForm,
                     evidence: e.target.value.split(',').map(s => s.trim()).filter(Boolean),
                   })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                  placeholder="Report.pdf, Screenshot.png"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  placeholder={t('projects.evidenceManualPlaceholder')}
                 />
                 <p className="text-xs text-gray-500 mt-1">{t('projects.evidenceSearchHint')}</p>
               </div>

@@ -23,9 +23,10 @@ interface ComplianceContextType {
   updateControl: (id: string, c: Partial<GRCControl>) => void;
   deleteControl: (id: string) => void;
 
-  addPolicy: (p: Omit<Policy, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updatePolicy: (id: string, p: Partial<Policy>) => void;
-  deletePolicy: (id: string) => void;
+  addPolicy: (p: Omit<Policy, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Policy | undefined>;
+  updatePolicy: (id: string, p: Partial<Policy>) => Promise<Policy | undefined>;
+  deletePolicy: (id: string) => Promise<void>;
+  refreshPolicy: (policy: Policy) => void;
 
   addDocument: (d: Omit<GRCDocument, 'id'>) => void;
   deleteDocument: (id: string) => void;
@@ -173,14 +174,14 @@ const SEED_CONTROLS: GRCControl[] = [
 ];
 
 const SEED_POLICIES: Policy[] = [
-  { id: genId(), title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01', createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
-  { id: genId(), title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15', createdAt: '2025-06-01T10:00:00Z', updatedAt: '2026-04-15T10:00:00Z' },
-  { id: genId(), title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10', createdAt: '2026-02-01T10:00:00Z', updatedAt: '2026-06-10T10:00:00Z' },
-  { id: genId(), title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01', createdAt: '2026-04-01T10:00:00Z', updatedAt: '2026-06-01T10:00:00Z' },
-  { id: genId(), title: 'Acceptable Use Policy', version: '3.0', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Acceptable use of company assets', lastReviewed: '2026-03-01', createdAt: '2024-01-01T10:00:00Z', updatedAt: '2026-03-01T10:00:00Z' },
-  { id: genId(), title: 'Business Continuity Policy', version: '1.0', status: 'published', framework: 'NBU Resolution №143', owner: 'Andriy Bondar', description: 'BCM framework', lastReviewed: '2026-02-01', createdAt: '2025-12-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
-  { id: genId(), title: 'Password Policy', version: '1.5', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Password requirements and management', lastReviewed: '2026-04-01', createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
-  { id: genId(), title: 'Cloud Security Policy', version: '0.8', status: 'in_review', framework: 'SOC 2', owner: 'Dmytro Kovalenko', description: 'Cloud service security requirements', lastReviewed: '2026-05-20', createdAt: '2026-03-01T10:00:00Z', updatedAt: '2026-05-20T10:00:00Z' },
+  { id: genId(), title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01', links: ['https://novapay-confluence/policy/is-policy'], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
+  { id: genId(), title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15', links: [], attachments: [], createdAt: '2025-06-01T10:00:00Z', updatedAt: '2026-04-15T10:00:00Z' },
+  { id: genId(), title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10', links: [], attachments: [], createdAt: '2026-02-01T10:00:00Z', updatedAt: '2026-06-10T10:00:00Z' },
+  { id: genId(), title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01', links: [], attachments: [], createdAt: '2026-04-01T10:00:00Z', updatedAt: '2026-06-01T10:00:00Z' },
+  { id: genId(), title: 'Acceptable Use Policy', version: '3.0', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Acceptable use of company assets', lastReviewed: '2026-03-01', links: [], attachments: [], createdAt: '2024-01-01T10:00:00Z', updatedAt: '2026-03-01T10:00:00Z' },
+  { id: genId(), title: 'Business Continuity Policy', version: '1.0', status: 'published', framework: 'NBU Resolution №143', owner: 'Andriy Bondar', description: 'BCM framework', lastReviewed: '2026-02-01', links: [], attachments: [], createdAt: '2025-12-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
+  { id: genId(), title: 'Password Policy', version: '1.5', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Password requirements and management', lastReviewed: '2026-04-01', links: [], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
+  { id: genId(), title: 'Cloud Security Policy', version: '0.8', status: 'in_review', framework: 'SOC 2', owner: 'Dmytro Kovalenko', description: 'Cloud service security requirements', lastReviewed: '2026-05-20', links: [], attachments: [], createdAt: '2026-03-01T10:00:00Z', updatedAt: '2026-05-20T10:00:00Z' },
 ];
 
 const SEED_CHECKS: AutomatedCheck[] = [
@@ -236,11 +237,20 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; } catch { return fallback; }
 }
 
+function normalizePolicy(p: Policy): Policy {
+  return {
+    ...p,
+    links: Array.isArray(p.links) ? p.links : [],
+    attachments: Array.isArray(p.attachments) ? p.attachments : [],
+  };
+}
+
 export function ComplianceProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<GRCTask[]>(() => loadFromStorage('grc-tasks', SEED_TASKS));
   const [controls, setControls] = useState<GRCControl[]>([]);
   const [controlsLoaded, setControlsLoaded] = useState(false);
-  const [policies, setPolicies] = useState<Policy[]>(() => loadFromStorage('grc-policies', SEED_POLICIES));
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [policiesLoaded, setPoliciesLoaded] = useState(false);
   const [documents, setDocuments] = useState<GRCDocument[]>(() => loadFromStorage('grc-documents', SEED_DOCUMENTS));
   const [checks, setChecks] = useState<AutomatedCheck[]>(() => loadFromStorage('grc-checks', SEED_CHECKS));
   const [milestones, setMilestones] = useState<Milestone[]>(() => loadFromStorage('grc-milestones', SEED_MILESTONES));
@@ -260,8 +270,20 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
         setControlsLoaded(true);
       });
   }, []);
+  useEffect(() => {
+    apiFetch('/api/policies')
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load policies')))
+      .then((data: Policy[]) => {
+        setPolicies(data.map(normalizePolicy));
+        setPoliciesLoaded(true);
+      })
+      .catch(() => {
+        setPolicies(loadFromStorage('grc-policies', SEED_POLICIES));
+        setPoliciesLoaded(true);
+      });
+  }, []);
   useEffect(() => { if (controlsLoaded) localStorage.setItem('grc-controls', JSON.stringify(controls)); }, [controls, controlsLoaded]);
-  useEffect(() => { localStorage.setItem('grc-policies', JSON.stringify(policies)); }, [policies]);
+  useEffect(() => { if (policiesLoaded) localStorage.setItem('grc-policies', JSON.stringify(policies)); }, [policies, policiesLoaded]);
   useEffect(() => { localStorage.setItem('grc-documents', JSON.stringify(documents)); }, [documents]);
   useEffect(() => { localStorage.setItem('grc-checks', JSON.stringify(checks)); }, [checks]);
   useEffect(() => { localStorage.setItem('grc-milestones', JSON.stringify(milestones)); }, [milestones]);
@@ -318,12 +340,58 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
     setControls(prev => prev.filter(c => c.id !== id));
   }, []);
 
-  const addPolicy = useCallback((d: Omit<Policy, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const addPolicy = useCallback(async (d: Omit<Policy, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const res = await apiFetch('/api/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d),
+      });
+      if (res.ok) {
+        const created = normalizePolicy(await res.json() as Policy);
+        setPolicies(prev => [created, ...prev]);
+        return created;
+      }
+    } catch { /* fallback below */ }
     const now = new Date().toISOString();
-    setPolicies(prev => [{ ...d, id: genId(), createdAt: now, updatedAt: now } as Policy, ...prev]);
+    const created = { ...d, links: d.links || [], attachments: d.attachments || [], id: genId(), createdAt: now, updatedAt: now } as Policy;
+    setPolicies(prev => [created, ...prev]);
+    return created;
   }, []);
-  const updatePolicy = useCallback((id: string, d: Partial<Policy>) => setPolicies(prev => prev.map(p => p.id === id ? { ...p, ...d, updatedAt: new Date().toISOString() } : p)), []);
-  const deletePolicy = useCallback((id: string) => setPolicies(prev => prev.filter(p => p.id !== id)), []);
+  const updatePolicy = useCallback(async (id: string, d: Partial<Policy>) => {
+    try {
+      const res = await apiFetch(`/api/policies/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d),
+      });
+      if (res.ok) {
+        const updated = normalizePolicy(await res.json() as Policy);
+        setPolicies(prev => prev.map(p => p.id === id ? updated : p));
+        return updated;
+      }
+    } catch { /* fallback below */ }
+    let next: Policy | undefined;
+    setPolicies(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      next = { ...p, ...d, updatedAt: new Date().toISOString() };
+      return next;
+    }));
+    return next;
+  }, []);
+  const deletePolicy = useCallback(async (id: string) => {
+    try {
+      const res = await apiFetch(`/api/policies/${id}`, { method: 'DELETE' });
+      if (res.ok || res.status === 204) {
+        setPolicies(prev => prev.filter(p => p.id !== id));
+        return;
+      }
+    } catch { /* fallback below */ }
+    setPolicies(prev => prev.filter(p => p.id !== id));
+  }, []);
+  const refreshPolicy = useCallback((policy: Policy) => {
+    setPolicies(prev => prev.map(p => p.id === policy.id ? normalizePolicy(policy) : p));
+  }, []);
 
   const addDocument = useCallback((d: Omit<GRCDocument, 'id'>) => setDocuments(prev => [{ ...d, id: genId() } as GRCDocument, ...prev]), []);
   const deleteDocument = useCallback((id: string) => setDocuments(prev => prev.filter(d => d.id !== id)), []);
@@ -343,7 +411,7 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
       tasks, controls, policies, documents, checks, milestones, integrations, chatMessages,
       addTask, updateTask, deleteTask,
       addControl, updateControl, deleteControl,
-      addPolicy, updatePolicy, deletePolicy,
+      addPolicy, updatePolicy, deletePolicy, refreshPolicy,
       addDocument, deleteDocument,
       addMilestone, updateMilestone,
       updateIntegration,

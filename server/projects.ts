@@ -10,6 +10,11 @@ import {
   filterControlsForFramework,
   findFrameworkOption,
 } from './frameworks.js';
+import { auditFromRequest, computeChanges } from './audit.js';
+import {
+  accessHasPermission,
+  roleForCompany,
+} from './auth/permissions.js';
 
 const UPLOAD_ROOT = path.resolve(
   process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'projects')
@@ -213,9 +218,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         orderBy: { updatedAt: 'desc' },
         include: { _count: { select: { projectControls: true } } },
       });
-      const allowed = req.user?.role === 'admin'
-        ? projects
-        : projects.filter(p => (req.user?.companies || []).includes(p.company as never));
+      const allowed = req.user
+        ? projects.filter(p => roleForCompany(req.user!.companies, p.company) !== null)
+        : [];
       res.json(allowed.map(p => serializeProject(p, p._count.projectControls)));
     } catch (error) {
       console.error(error);
@@ -232,8 +237,8 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       }
 
       const company = String(body.company || 'NovaPay LLC').trim();
-      if (req.user?.role !== 'admin' && !(req.user?.companies || []).includes(company as never)) {
-        return res.status(403).json({ error: 'No access to this company' });
+      if (!accessHasPermission(req.user?.companies || {}, 'projects:write', company)) {
+        return res.status(403).json({ error: 'No write access to this company' });
       }
 
       const allControls = await prisma.gRCControl.findMany({
@@ -311,6 +316,23 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       }
 
       const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'create',
+        entityType: 'project',
+        entityId: project.id,
+        entityLabel: project.title,
+        summary: `Created project "${project.title}" (${project.company}, ${project.framework}) with ${count} controls`,
+        changes: {
+          title: { from: null, to: project.title },
+          company: { from: null, to: project.company },
+          framework: { from: null, to: project.framework },
+          status: { from: null, to: project.status },
+        },
+        metadata: { controlCount: count },
+      });
+
       res.status(201).json(serializeProject(project, count));
     } catch (error) {
       console.error(error);
@@ -325,10 +347,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         include: { _count: { select: { projectControls: true } } },
       });
       if (!project) return res.status(404).json({ error: 'Project not found' });
-      if (
-        req.user?.role !== 'admin' &&
-        !(req.user?.companies || []).includes(project.company as never)
-      ) {
+      if (roleForCompany(req.user?.companies || {}, project.company) === null) {
         return res.status(403).json({ error: 'No access to this company' });
       }
       res.json(serializeProject(project, project._count.projectControls));
@@ -341,6 +360,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
   app.patch('/api/projects/:id', requirePermission('projects:write'), async (req, res) => {
     try {
       const body = req.body;
+      const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Project not found' });
+
       const data: Record<string, string | number> = {};
       for (const key of ['title', 'company', 'type', 'framework', 'status', 'description', 'owner', 'startDate', 'targetDate', 'completedAt'] as const) {
         if (body[key] !== undefined) data[key] = body[key];
@@ -354,6 +376,22 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
       const project = await prisma.project.update({ where: { id: req.params.id }, data });
       const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+
+      const fields = ['title', 'company', 'type', 'framework', 'status', 'description', 'owner', 'startDate', 'targetDate', 'completedAt', 'progress', 'team', 'scope', 'tasks', 'reviews', 'findings'];
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'update',
+        entityType: 'project',
+        entityId: project.id,
+        entityLabel: project.title,
+        summary: `Updated project "${project.title}"`,
+        changes: computeChanges(
+          existing as unknown as Record<string, unknown>,
+          project as unknown as Record<string, unknown>,
+          fields,
+        ),
+      });
+
       res.json(serializeProject(project, count));
     } catch (error) {
       console.error(error);
@@ -363,7 +401,26 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
   app.delete('/api/projects/:id', requirePermission('projects:delete'), async (req, res) => {
     try {
+      const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Project not found' });
+
       await prisma.project.delete({ where: { id: req.params.id } });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'delete',
+        severity: 'warning',
+        entityType: 'project',
+        entityId: existing.id,
+        entityLabel: existing.title,
+        summary: `Deleted project "${existing.title}"`,
+        changes: {
+          title: { from: existing.title, to: null },
+          company: { from: existing.company, to: null },
+          framework: { from: existing.framework, to: null },
+        },
+      });
+
       res.status(204).end();
     } catch (error) {
       console.error(error);
@@ -494,6 +551,21 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         },
       });
 
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'create',
+        entityType: 'project_control',
+        entityId: createdControls.map(c => c.id).join(','),
+        entityLabel: createdControls.map(c => c.controlCode || c.title).join(', '),
+        summary: `Added ${createdControls.length} control(s) to project "${project.title}"`,
+        metadata: {
+          projectId: project.id,
+          projectTitle: project.title,
+          controlIds: createdControls.map(c => c.id),
+          count: createdControls.length,
+        },
+      });
+
       res.status(201).json(createdControls.length === 1 ? createdControls[0] : createdControls);
     } catch (error) {
       console.error(error);
@@ -513,6 +585,22 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
       }
       await prisma.projectControl.delete({ where: { id: existing.id } });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'delete',
+        severity: 'warning',
+        entityType: 'project_control',
+        entityId: existing.id,
+        entityLabel: existing.controlCode || existing.title,
+        summary: `Removed control "${existing.controlCode || existing.title}" from project`,
+        metadata: { projectId: req.params.id },
+        changes: {
+          title: { from: existing.title, to: null },
+          status: { from: existing.status, to: null },
+        },
+      });
+
       res.status(204).end();
     } catch (error) {
       console.error(error);
@@ -539,6 +627,27 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       if (body.mitigation !== undefined) data.mitigation = JSON.stringify(normalizeMitigation(body.mitigation));
 
       const updated = await prisma.projectControl.update({ where: { id: existing.id }, data });
+
+      const fields = [
+        'title', 'description', 'framework', 'category', 'status', 'owner',
+        'controlDesign', 'source', 'lastReviewed', 'controlCode',
+        'evidence', 'evidenceLinks', 'attachments', 'accessList', 'mitigation',
+      ];
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'update',
+        entityType: 'project_control',
+        entityId: updated.id,
+        entityLabel: updated.controlCode || updated.title,
+        summary: `Updated project control "${updated.controlCode || updated.title}"`,
+        changes: computeChanges(
+          existing as unknown as Record<string, unknown>,
+          updated as unknown as Record<string, unknown>,
+          fields,
+        ),
+        metadata: { projectId: req.params.id },
+      });
+
       res.json(serializeProjectControl(updated));
     } catch (error) {
       console.error(error);
@@ -574,6 +683,21 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
           where: { id: existing.id },
           data: { attachments: JSON.stringify([...current, ...added]) },
         });
+
+        await auditFromRequest(prisma, req, {
+          category: 'data',
+          action: 'upload',
+          entityType: 'attachment',
+          entityId: existing.id,
+          entityLabel: existing.controlCode || existing.title,
+          summary: `Uploaded ${added.length} file(s) to control "${existing.controlCode || existing.title}"`,
+          metadata: {
+            projectId: req.params.id,
+            controlId: existing.id,
+            files: added.map(a => ({ id: a.id, name: a.name, size: a.size })),
+          },
+        });
+
         res.status(201).json(serializeProjectControl(updated));
       } catch (error) {
         console.error(error);
@@ -624,6 +748,22 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         where: { id: existing.id },
         data: { attachments: JSON.stringify(next) },
       });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'delete',
+        severity: 'warning',
+        entityType: 'attachment',
+        entityId: att.id,
+        entityLabel: att.name,
+        summary: `Deleted attachment "${att.name}" from control "${existing.controlCode || existing.title}"`,
+        metadata: {
+          projectId: req.params.id,
+          controlId: existing.id,
+          fileName: att.name,
+        },
+      });
+
       res.json(serializeProjectControl(updated));
     } catch (error) {
       console.error(error);

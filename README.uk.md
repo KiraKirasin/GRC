@@ -188,14 +188,18 @@ curl -s http://127.0.0.1:3001/api/health
 
 Рекомендована VM: **e2-small** на Compute Engine з Ubuntu 22.04, Docker Compose і Caddy для HTTPS.
 
+CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) — збірка, сканування (SBOM/Trivy/опційний Snyk) і деплой immutable-образу на VM `grc-pilot` при push у `main`. Налаштування секретів: [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred). Окремі `google.yml`, `sbom-trivy.yml`, `snyk-security.yml` видалено (покриття в `grc-ci-cd.yml`); CodeQL лишається окремо.
+
 ## Структура проєкту
 
 ```
 ├── src/                 # React frontend (pages, components, contexts)
 ├── server/              # Express API routes
 ├── prisma/              # Schema, migrations, import scripts
+├── e2e/                 # Playwright smoke-тести
 ├── deploy/              # Caddy reverse proxy config
 ├── docs/                # Документація з деплою
+├── .github/workflows/   # CodeQL + GRC CI/CD
 ├── Dockerfile
 └── docker-compose.yml
 ```

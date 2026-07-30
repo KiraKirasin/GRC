@@ -5,7 +5,6 @@ import { useRisks } from '../context/RiskContext';
 import { useCompliance } from '../context/ComplianceContext';
 import { useProjects } from '../context/ProjectContext';
 import { calculateRiskLevel, getRiskLevelLabel, getRiskLevelColor, FRAMEWORKS, COMPANIES } from '../types';
-import { CRITERIA } from '../data/criteria';
 
 export default function Dashboard() {
   const { t } = useTranslation();
@@ -54,10 +53,9 @@ export default function Dashboard() {
     const label = getRiskLevelLabel(score);
     if (label === 'critical') criticalCount++;
     levelCount[label] = (levelCount[label] || 0) + 1;
-    const crit = CRITERIA.find(c => c.id === r.criterionId);
-    if (crit) catCount[crit.category] = (catCount[crit.category] || 0) + 1;
+    if (r.category) catCount[r.category] = (catCount[r.category] || 0) + 1;
   }
-  activeTreatments = risks.filter(r => r.treatmentPlan?.trim()).length;
+  activeTreatments = risks.filter(r => r.mitigationsEnabled && r.mitigations.length > 0).length;
 
   const recent = [...risks].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 5);
   const maxCat = Math.max(...Object.values(catCount), 1);
@@ -294,7 +292,7 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">{t('criteria.criterion')}</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">{t('riskRegister.riskTitle')}</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">{t('riskRegister.inherent')}</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">{t('riskRegister.residual')}</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">{t('riskRegister.status')}</th>
@@ -302,12 +300,14 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {recent.map(r => {
-                  const crit = CRITERIA.find(c => c.id === r.criterionId);
                   const inScore = calculateRiskLevel(r.inherentLikelihood, r.inherentImpact);
                   const resScore = calculateRiskLevel(r.residualLikelihood, r.residualImpact);
                   return (
                     <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/risks')}>
-                      <td className="py-2 px-3 text-gray-900 max-w-xs truncate">{crit?.criterion || `ID: ${r.criterionId}`}</td>
+                      <td className="py-2 px-3 text-gray-900 max-w-xs truncate">
+                        <span className="font-mono text-xs text-gray-400 mr-2">{r.riskCode}</span>
+                        {r.title || '—'}
+                      </td>
                       <td className="py-2 px-3">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getRiskLevelColor(inScore)}`}>{inScore} {getRiskLevelLabel(inScore)}</span>
                       </td>

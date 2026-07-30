@@ -106,13 +106,14 @@ The Vite dev server proxies `/api` requests to the Express API.
 
 ### Environment variables
 
-Create a `.env` file in the project root (optional for local dev):
+Copy [`.env.example`](.env.example) to `.env` and set secrets locally (`.env` is gitignored):
 
-```env
-DATABASE_URL="file:./grc.db"
-PORT=3100
-UPLOAD_DIR=./uploads/projects
+```bash
+cp .env.example .env
 ```
+
+Key variables: `DATABASE_URL`, `PORT`, `UPLOAD_DIR`, `JWT_SECRET`, `JWT_EXPIRES`, `SEED_USER_PASSWORD`.  
+CI/CD secrets (`GCP_*`, `SNYK_TOKEN`) belong in GitHub Actions, not in `.env`.
 
 ## Import controls
 
@@ -163,14 +164,20 @@ See the full guide: [docs/deploy-gcp.md](docs/deploy-gcp.md)
 
 Recommended VM: **e2-small** on Compute Engine with Ubuntu 22.04, Docker Compose, and Caddy for HTTPS.
 
+CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) builds, scans (SBOM/Trivy/optional Snyk), and deploys an immutable image to the `grc-pilot` VM on pushes to `main`. Setup details are in [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred).
+
+Older standalone workflows (`google.yml`, `sbom-trivy.yml`, `snyk-security.yml`) are removed; their coverage lives in `grc-ci-cd.yml`. CodeQL remains separate.
+
 ## Project structure
 
 ```
 ├── src/                 # React frontend (pages, components, contexts)
 ├── server/              # Express API routes
 ├── prisma/              # Schema, migrations, import scripts
+├── e2e/                 # Playwright smoke tests
 ├── deploy/              # Caddy reverse proxy config
 ├── docs/                # Deployment documentation
+├── .github/workflows/   # CodeQL + GRC CI/CD
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -182,6 +189,7 @@ Recommended VM: **e2-small** on Compute Engine with Ubuntu 22.04, Docker Compose
 | `npm run dev` | Start API + frontend in development |
 | `npm run build` | Type-check and build frontend |
 | `npm start` | Run production server |
+| `npm run test:e2e` | Playwright smoke tests (`E2E_BASE_URL`) |
 | `npm run seed` | Seed database with sample data |
 | `npm run import-controls` | Import enterprise controls from Excel |
 | `npm run import-pci` | Import PCI DSS controls |

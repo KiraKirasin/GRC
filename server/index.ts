@@ -5,9 +5,12 @@ import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { registerProjectRoutes } from './projects.js';
+import { registerPolicyRoutes } from './policies.js';
 import { authenticateUnlessPublic } from './auth/middleware.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { requirePermission } from './auth/middleware.js';
+import { registerAuditRoutes } from './audit-routes.js';
+import { auditFromRequest, computeChanges } from './audit.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
@@ -19,6 +22,7 @@ app.use(express.json());
 app.use(authenticateUnlessPublic);
 
 registerAuthRoutes(app, prisma);
+registerAuditRoutes(app, prisma);
 
 function parseJsonArray<T>(value: string, fallback: T[] = []): T[] {
   try {
@@ -38,6 +42,12 @@ function serializeControl(control: NonNullable<Awaited<ReturnType<typeof prisma.
     accessList: parseJsonArray(control.accessList),
   };
 }
+
+const CONTROL_AUDIT_FIELDS = [
+  'controlCode', 'title', 'description', 'framework', 'category', 'status',
+  'owner', 'evidence', 'evidenceLinks', 'attachments', 'controlDesign',
+  'source', 'accessList', 'lastReviewed',
+] as const;
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -74,6 +84,22 @@ app.post('/api/controls', requirePermission('controls:write'), async (req, res) 
         lastReviewed: body.lastReviewed || '',
       },
     });
+
+    await auditFromRequest(prisma, req, {
+      category: 'data',
+      action: 'create',
+      entityType: 'control',
+      entityId: created.id,
+      entityLabel: created.controlCode || created.title,
+      summary: `Created control ${created.controlCode || created.title}`,
+      changes: {
+        title: { from: null, to: created.title },
+        framework: { from: null, to: created.framework },
+        category: { from: null, to: created.category },
+        status: { from: null, to: created.status },
+      },
+    });
+
     res.status(201).json(serializeControl(created));
   } catch (error) {
     console.error(error);
@@ -85,6 +111,9 @@ app.patch('/api/controls/:id', requirePermission('controls:write'), async (req, 
   try {
     const { id } = req.params;
     const body = req.body;
+    const existing = await prisma.gRCControl.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Control not found' });
+
     const data: Record<string, string> = {};
     for (const key of ['controlCode', 'title', 'description', 'framework', 'category', 'status', 'owner', 'controlDesign', 'source', 'lastReviewed'] as const) {
       if (body[key] !== undefined) data[key] = body[key];
@@ -95,6 +124,24 @@ app.patch('/api/controls/:id', requirePermission('controls:write'), async (req, 
     if (body.accessList !== undefined) data.accessList = JSON.stringify(body.accessList);
 
     const updated = await prisma.gRCControl.update({ where: { id }, data });
+
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const key of CONTROL_AUDIT_FIELDS) {
+      before[key] = existing[key];
+      after[key] = updated[key];
+    }
+
+    await auditFromRequest(prisma, req, {
+      category: 'data',
+      action: 'update',
+      entityType: 'control',
+      entityId: updated.id,
+      entityLabel: updated.controlCode || updated.title,
+      summary: `Updated control ${updated.controlCode || updated.title}`,
+      changes: computeChanges(before, after, [...CONTROL_AUDIT_FIELDS]),
+    });
+
     res.json(serializeControl(updated));
   } catch (error) {
     console.error(error);
@@ -104,7 +151,25 @@ app.patch('/api/controls/:id', requirePermission('controls:write'), async (req, 
 
 app.delete('/api/controls/:id', requirePermission('controls:delete'), async (req, res) => {
   try {
+    const existing = await prisma.gRCControl.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Control not found' });
+
     await prisma.gRCControl.delete({ where: { id: req.params.id } });
+
+    await auditFromRequest(prisma, req, {
+      category: 'data',
+      action: 'delete',
+      severity: 'warning',
+      entityType: 'control',
+      entityId: existing.id,
+      entityLabel: existing.controlCode || existing.title,
+      summary: `Deleted control ${existing.controlCode || existing.title}`,
+      changes: {
+        title: { from: existing.title, to: null },
+        framework: { from: existing.framework, to: null },
+      },
+    });
+
     res.status(204).end();
   } catch (error) {
     console.error(error);
@@ -113,6 +178,7 @@ app.delete('/api/controls/:id', requirePermission('controls:delete'), async (req
 });
 
 registerProjectRoutes(app, prisma);
+registerPolicyRoutes(app, prisma);
 
 // Production: serve built SPA from Vite `dist/`
 if (process.env.NODE_ENV === 'production') {

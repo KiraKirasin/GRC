@@ -11,22 +11,165 @@ export interface RiskCriterion {
   source: string;
 }
 
+export type RiskControlSource = 'manual' | 'repository';
+
+/** Declared early for RiskMitigationAction */
+export type TaskStatus = 'completed' | 'in_progress' | 'remaining' | 'due_soon' | 'overdue';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
+
+export interface RiskExistingControl {
+  id: string;
+  source: RiskControlSource;
+  controlId?: string;
+  controlCode?: string;
+  title: string;
+  framework?: string;
+  notes?: string;
+}
+
+export interface RiskMitigationAction {
+  id: string;
+  source: RiskControlSource;
+  controlId?: string;
+  controlCode?: string;
+  title: string;
+  description: string;
+  owner: string;
+  dueDate: string;
+  status: TaskStatus;
+  taskId?: string;
+  framework?: string;
+}
+
+export interface RiskFrameworkMapping {
+  id: string;
+  framework: string;
+  requirement: string;
+}
+
+export interface RiskAcceptance {
+  accepted: boolean;
+  acceptedBy: string;
+  expiration: string;
+  exception: string;
+}
+
+export const EMPTY_RISK_ACCEPTANCE: RiskAcceptance = {
+  accepted: false,
+  acceptedBy: '',
+  expiration: '',
+  exception: '',
+};
+
 export interface RiskItem {
   id: string;
-  criterionId: number;
+  /** Display ID e.g. RISK-2026-0001 */
+  riskCode: string;
+  title: string;
+  assets: string;
+  category: string;
+  domain: string;
+  businessUnit: string;
+  riskOwner: string;
+  technicalOwner: string;
   status: RiskStatus;
+  createdDate: string;
+  lastAssessment: string;
   inherentLikelihood: number;
   inherentImpact: number;
   residualLikelihood: number;
   residualImpact: number;
-  owner: string;
-  treatmentPlan: string;
+  existingControls: RiskExistingControl[];
+  mitigationsEnabled: boolean;
+  mitigations: RiskMitigationAction[];
+  frameworkMappings: RiskFrameworkMapping[];
+  acceptance: RiskAcceptance;
   notes: string;
+  /** Legacy criteria-matrix link (optional) */
+  criterionId?: number;
+  /** @deprecated use riskOwner */
+  owner?: string;
+  /** @deprecated use mitigations */
+  treatmentPlan?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export type RiskStatus = 'identified' | 'assessing' | 'mitigating' | 'accepted' | 'monitoring';
+
+export const RISK_CATEGORIES = [
+  'Application Security',
+  'Infrastructure',
+  'Data Protection',
+  'Identity & Access',
+  'Third-Party',
+  'Operational',
+  'Compliance',
+  'Other',
+] as const;
+
+export const RISK_DOMAINS = [
+  'AI Security',
+  'Cloud Security',
+  'Cybersecurity',
+  'Privacy',
+  'ICT Risk',
+  'Business Continuity',
+  'Other',
+] as const;
+
+export function genRiskEntityId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+export function nextRiskCode(existing: { riskCode?: string }[]): string {
+  const year = new Date().getFullYear();
+  const prefix = `RISK-${year}-`;
+  let max = 0;
+  for (const r of existing) {
+    const code = r.riskCode || '';
+    if (!code.startsWith(prefix)) continue;
+    const n = Number(code.slice(prefix.length));
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+}
+
+export function normalizeRiskItem(raw: Partial<RiskItem> & { id?: string }): RiskItem {
+  const now = new Date().toISOString();
+  const createdAt = raw.createdAt || now;
+  const acceptance = {
+    ...EMPTY_RISK_ACCEPTANCE,
+    ...(raw.acceptance || {}),
+  };
+  return {
+    id: raw.id || genRiskEntityId(),
+    riskCode: raw.riskCode || '',
+    title: raw.title || '',
+    assets: raw.assets || '',
+    category: raw.category || '',
+    domain: raw.domain || '',
+    businessUnit: raw.businessUnit || '',
+    riskOwner: raw.riskOwner || raw.owner || '',
+    technicalOwner: raw.technicalOwner || '',
+    status: raw.status || 'identified',
+    createdDate: raw.createdDate || createdAt.slice(0, 10),
+    lastAssessment: raw.lastAssessment || '',
+    inherentLikelihood: Number(raw.inherentLikelihood) || 1,
+    inherentImpact: Number(raw.inherentImpact) || 1,
+    residualLikelihood: Number(raw.residualLikelihood) || 1,
+    residualImpact: Number(raw.residualImpact) || 1,
+    existingControls: Array.isArray(raw.existingControls) ? raw.existingControls : [],
+    mitigationsEnabled: Boolean(raw.mitigationsEnabled),
+    mitigations: Array.isArray(raw.mitigations) ? raw.mitigations : [],
+    frameworkMappings: Array.isArray(raw.frameworkMappings) ? raw.frameworkMappings : [],
+    acceptance,
+    notes: raw.notes || raw.treatmentPlan || '',
+    criterionId: raw.criterionId,
+    createdAt,
+    updatedAt: raw.updatedAt || createdAt,
+  };
+}
 
 // --- Tasks ---
 
@@ -44,12 +187,12 @@ export interface GRCTask {
   sourceProjectId?: string;
   sourceControlId?: string;
   sourceControlCode?: string;
+  /** Links mitigation action from a risk card */
+  sourceRiskId?: string;
+  sourceRiskCode?: string;
   createdAt: string;
   updatedAt: string;
 }
-
-export type TaskStatus = 'completed' | 'in_progress' | 'remaining' | 'due_soon' | 'overdue';
-export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // --- Controls ---
 
@@ -103,6 +246,8 @@ export interface Policy {
   owner: string;
   description: string;
   lastReviewed: string;
+  links: string[];
+  attachments: ControlAttachment[];
   createdAt: string;
   updatedAt: string;
 }

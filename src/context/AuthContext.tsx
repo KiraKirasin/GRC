@@ -3,8 +3,8 @@ import { apiFetch, clearToken, getToken, setToken } from '../lib/api';
 import {
   type AuthUser,
   type Permission,
-  roleHasPermission,
   userCanAccessCompany,
+  userHasPermission,
 } from '../lib/permissions';
 
 interface AuthContextType {
@@ -66,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     clearToken();
     setUser(null);
   }, []);
@@ -73,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasPermission = useCallback(
     (permission: Permission) => {
       if (!user) return false;
-      return roleHasPermission(user.role, permission);
+      return userHasPermission(user, permission);
     },
     [user],
   );

@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiFetch } from '../lib/api';
 import { usePermission } from '../context/AuthContext';
 import {
   COMPANIES,
-  PERMISSIONS,
   ROLE_CAPABILITY_MATRIX,
   USER_ROLES,
+  companyNamesFromAccess,
   type AuthUser,
+  type CompanyAccessMap,
   type CompanyName,
-  type Permission,
   type UserRole,
 } from '../lib/permissions';
+
+type FormCompanyRoles = Record<CompanyName, UserRole | ''>;
+
+const emptyCompanyRoles = (): FormCompanyRoles =>
+  Object.fromEntries(COMPANIES.map(c => [c, ''])) as FormCompanyRoles;
 
 const emptyForm = {
   email: '',
   name: '',
   password: '',
-  role: 'auditor' as UserRole,
-  companies: [] as CompanyName[],
+  companyRoles: emptyCompanyRoles(),
   active: true,
 };
 
@@ -28,10 +32,22 @@ function capabilityCell(value: boolean | string, t: (k: string) => string) {
   return <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">{t(`auth.cap.${value}`)}</span>;
 }
 
-function permissionsForRole(role: UserRole): Permission[] {
-  return (Object.keys(PERMISSIONS) as Permission[]).filter(p =>
-    (PERMISSIONS[p] as readonly string[]).includes(role),
-  );
+function toAccessMap(roles: FormCompanyRoles): CompanyAccessMap {
+  const access: CompanyAccessMap = {};
+  for (const company of COMPANIES) {
+    const role = roles[company];
+    if (role) access[company] = role;
+  }
+  return access;
+}
+
+function fromAccessMap(access: CompanyAccessMap | undefined): FormCompanyRoles {
+  const roles = emptyCompanyRoles();
+  for (const company of COMPANIES) {
+    const role = access?.[company];
+    roles[company] = role || '';
+  }
+  return roles;
 }
 
 export default function UsersPage() {
@@ -63,8 +79,6 @@ export default function UsersPage() {
     if (canManage) loadUsers();
   }, [canManage]);
 
-  const rolePerms = useMemo(() => permissionsForRole(form.role), [form.role]);
-
   if (!canManage) {
     return (
       <div className="text-center py-16">
@@ -87,8 +101,7 @@ export default function UsersPage() {
       email: user.email,
       name: user.name,
       password: '',
-      role: user.role,
-      companies: user.role === 'admin' ? [...COMPANIES] : [...(user.companies || [])],
+      companyRoles: fromAccessMap(user.companies),
       active: user.active,
     });
     setShowForm(true);
@@ -96,23 +109,10 @@ export default function UsersPage() {
     setSuccess('');
   };
 
-  const setRole = (role: UserRole) => {
+  const setCompanyRole = (company: CompanyName, role: UserRole | '') => {
     setForm(f => ({
       ...f,
-      role,
-      companies: role === 'admin'
-        ? [...COMPANIES]
-        : (f.companies.length ? f.companies.filter(c => COMPANIES.includes(c)) : [...COMPANIES]),
-    }));
-  };
-
-  const toggleCompany = (company: CompanyName) => {
-    if (form.role === 'admin') return;
-    setForm(f => ({
-      ...f,
-      companies: f.companies.includes(company)
-        ? f.companies.filter(c => c !== company)
-        : [...f.companies, company],
+      companyRoles: { ...f.companyRoles, [company]: role },
     }));
   };
 
@@ -127,7 +127,8 @@ export default function UsersPage() {
     e.preventDefault();
     setError('');
     setSuccess('');
-    if (form.role !== 'admin' && form.companies.length === 0) {
+    const companies = toAccessMap(form.companyRoles);
+    if (companyNamesFromAccess(companies).length === 0) {
       setError(t('auth.selectCompanyRequired'));
       return;
     }
@@ -137,8 +138,7 @@ export default function UsersPage() {
       if (editing) {
         const body: Record<string, unknown> = {
           name: form.name,
-          role: form.role,
-          companies: form.companies,
+          companies,
           active: form.active,
         };
         if (form.password.trim()) body.password = form.password;
@@ -159,8 +159,7 @@ export default function UsersPage() {
             email: form.email,
             name: form.name,
             password: form.password,
-            role: form.role,
-            companies: form.companies,
+            companies,
           }),
         });
         if (!res.ok) {
@@ -237,20 +236,6 @@ export default function UsersPage() {
                 ))}
               </tr>
             ))}
-            {COMPANIES.map(company => (
-              <tr key={company} className="border-b border-gray-100 bg-brand-50/30">
-                <td className="py-2.5 px-4 text-gray-800 font-medium">{companyLabel(company)}</td>
-                {USER_ROLES.map(role => (
-                  <td key={role} className="py-2.5 px-3 text-center">
-                    {role === 'admin' ? (
-                      <span className="text-emerald-600 font-medium">✓</span>
-                    ) : (
-                      <span className="text-[11px] text-gray-400">{t('auth.perUserCheckbox')}</span>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))}
           </tbody>
         </table>
       </div>
@@ -264,59 +249,57 @@ export default function UsersPage() {
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('auth.name')}</th>
                 <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('auth.email')}</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('auth.role')}</th>
                 <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('auth.companiesLabel')}</th>
                 <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('common.status')}</th>
                 <th className="text-left py-3 px-4 text-gray-500 font-medium">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
-                <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50/80">
-                  <td className="py-3 px-4 font-medium text-gray-900">{u.name}</td>
-                  <td className="py-3 px-4 text-gray-600">{u.email}</td>
-                  <td className="py-3 px-4">
-                    <span className="capitalize px-2 py-0.5 rounded text-xs font-medium bg-brand-50 text-brand-700">
-                      {t(`auth.roles.${u.role}`, { defaultValue: u.role })}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex flex-wrap gap-1">
-                      {(u.role === 'admin' ? COMPANIES : (u.companies || [])).map(c => (
-                        <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                          {companyLabel(c)}
-                        </span>
-                      ))}
-                      {u.role !== 'admin' && !(u.companies || []).length && (
-                        <span className="text-xs text-red-500">{t('auth.noCompanies')}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded text-xs ${u.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
-                      {u.active ? t('auth.active') : t('auth.inactive')}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(u)}
-                        className="px-2.5 py-1 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700"
-                      >
-                        {t('auth.editAccess')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleActive(u)}
-                        className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-                      >
-                        {u.active ? t('auth.deactivate') : t('auth.activate')}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {users.map(u => {
+                const assigned = companyNamesFromAccess(u.companies || {});
+                return (
+                  <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50/80">
+                    <td className="py-3 px-4 font-medium text-gray-900">{u.name}</td>
+                    <td className="py-3 px-4 text-gray-600">{u.email}</td>
+                    <td className="py-3 px-4">
+                      <div className="flex flex-wrap gap-1">
+                        {assigned.map(c => (
+                          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                            {companyLabel(c)}
+                            <span className="text-brand-700 font-medium"> · {t(`auth.roles.${u.companies[c]}`, { defaultValue: u.companies[c] })}</span>
+                          </span>
+                        ))}
+                        {!assigned.length && (
+                          <span className="text-xs text-red-500">{t('auth.noCompanies')}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded text-xs ${u.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {u.active ? t('auth.active') : t('auth.inactive')}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(u)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700"
+                        >
+                          {t('auth.editAccess')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleActive(u)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        >
+                          {u.active ? t('auth.deactivate') : t('auth.activate')}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -376,62 +359,34 @@ export default function UsersPage() {
                 />
               </div>
 
-              {/* Privileges = role */}
-              <div className="border border-gray-200 rounded-lg p-3 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{t('auth.privilegesSection')}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{t('auth.privilegesHint')}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('auth.role')}</label>
-                  <select
-                    value={form.role}
-                    onChange={e => setRole(e.target.value as UserRole)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                  >
-                    {USER_ROLES.map(role => (
-                      <option key={role} value={role}>
-                        {t(`auth.roles.${role}`, { defaultValue: role })}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {rolePerms.map(p => (
-                    <span key={p} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-medium">
-                      {p}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Company access */}
-              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 space-y-2">
+              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 space-y-3">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{t('auth.companyAccessSection')}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {form.role === 'admin' ? t('auth.adminAllCompanies') : t('auth.selectCompanies')}
-                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{t('auth.selectCompanies')}</p>
                 </div>
-                <div className="space-y-1.5">
-                  {COMPANIES.map(company => {
-                    const checked = form.role === 'admin' || form.companies.includes(company);
-                    return (
-                      <label
-                        key={company}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded bg-white border border-gray-100 ${form.role === 'admin' ? 'opacity-70' : 'cursor-pointer hover:border-brand-200'}`}
+                <div className="space-y-2">
+                  {COMPANIES.map(company => (
+                    <div
+                      key={company}
+                      className="flex items-center gap-3 px-2.5 py-2 rounded-lg bg-white border border-gray-100"
+                    >
+                      <span className="flex-1 text-sm text-gray-800 min-w-0 truncate" title={companyLabel(company)}>
+                        {companyLabel(company)}
+                      </span>
+                      <select
+                        value={form.companyRoles[company]}
+                        onChange={e => setCompanyRole(company, e.target.value as UserRole | '')}
+                        className="w-40 shrink-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={form.role === 'admin'}
-                          onChange={() => toggleCompany(company)}
-                          className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                        />
-                        <span className="text-sm text-gray-800">{companyLabel(company)}</span>
-                      </label>
-                    );
-                  })}
+                        <option value="">—</option>
+                        {USER_ROLES.map(role => (
+                          <option key={role} value={role}>
+                            {t(`auth.roles.${role}`, { defaultValue: role })}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
               </div>
 

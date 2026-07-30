@@ -8,38 +8,43 @@ const prisma = new PrismaClient({ adapter });
 
 const DEFAULT_PASSWORD = process.env.SEED_USER_PASSWORD || 'grc123';
 
-const ALL_COMPANIES = JSON.stringify([
+const COMPANIES = [
   'NovaPay LLC',
   'Novapay Solutions',
   'Novapay Moldova',
   'NovaPay EU UAB',
-]);
+] as const;
+
+function accessForRole(role: string) {
+  return JSON.stringify(Object.fromEntries(COMPANIES.map(c => [c, role])));
+}
 
 const SEED_USERS = [
-  { email: 'admin@novapay.ua', name: 'Admin User', role: 'admin', companies: ALL_COMPANIES },
-  { email: 'auditor@novapay.ua', name: 'Audit User', role: 'auditor', companies: ALL_COMPANIES },
-  { email: 'approver@novapay.ua', name: 'Approver User', role: 'approver', companies: ALL_COMPANIES },
-  { email: 'implementer@novapay.ua', name: 'Implementer User', role: 'implementer', companies: ALL_COMPANIES },
-  { email: 'reviewer@novapay.ua', name: 'Reviewer User', role: 'reviewer', companies: ALL_COMPANIES },
+  { email: 'admin@novapay.ua', name: 'Admin User', role: 'admin' },
+  { email: 'auditor@novapay.ua', name: 'Audit User', role: 'auditor' },
+  { email: 'approver@novapay.ua', name: 'Approver User', role: 'approver' },
+  { email: 'implementer@novapay.ua', name: 'Implementer User', role: 'implementer' },
+  { email: 'reviewer@novapay.ua', name: 'Reviewer User', role: 'reviewer' },
 ] as const;
 
 async function main() {
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
 
   for (const u of SEED_USERS) {
+    const companies = accessForRole(u.role);
     await prisma.user.upsert({
       where: { email: u.email },
-      update: { name: u.name, role: u.role, active: true, companies: u.companies },
+      update: { name: u.name, role: u.role, active: true, companies },
       create: {
         email: u.email,
         name: u.name,
         role: u.role,
         passwordHash,
         active: true,
-        companies: u.companies,
+        companies,
       },
     });
-    console.log(`User ready: ${u.email} (${u.role}) companies=${u.companies}`);
+    console.log(`User ready: ${u.email} (${u.role}) companies=${companies}`);
   }
 
   console.log(`Default password: ${DEFAULT_PASSWORD}`);

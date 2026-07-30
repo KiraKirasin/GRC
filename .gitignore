@@ -3,9 +3,14 @@ dist
 # Keep environment variables out of version control
 .env
 .env.*
+!.env.example
 
 /src/generated/prisma
 uploads
 *.db
 *.db-journal
 tsconfig.tsbuildinfo
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

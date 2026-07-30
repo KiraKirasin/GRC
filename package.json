@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "preview": "vite preview",
+    "test:e2e": "playwright test",
     "seed": "npx tsx prisma/seed.ts",
     "seed-users": "npx tsx prisma/seed-users.ts",
     "import-controls": "npx tsx prisma/import-controls.ts",
@@ -42,6 +43,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

@@ -3,14 +3,17 @@ import type { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { signToken } from './jwt.js';
 import {
-  COMPANIES,
-  isUserRole,
-  normalizeCompaniesInput,
-  resolveUserCompanies,
+  companyNamesFromAccess,
+  normalizeCompanyAccessInput,
+  parseCompanyAccess,
+  primaryRoleFromAccess,
+  serializeCompanyAccess,
   USER_ROLES,
+  type CompanyAccessMap,
   type UserRole,
 } from './permissions.js';
 import { requirePermission } from './middleware.js';
+import { auditFromRequest, computeChanges, writeAuditLog, clientMeta } from '../audit.js';
 
 function serializeUser(user: {
   id: string;
@@ -22,12 +25,14 @@ function serializeUser(user: {
   createdAt: Date;
   updatedAt: Date;
 }) {
+  const companies = parseCompanyAccess(user.companies, user.role);
+  const role = primaryRoleFromAccess(companies);
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    role: user.role,
-    companies: resolveUserCompanies(user.role, user.companies),
+    role,
+    companies,
     active: user.active,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
@@ -36,6 +41,7 @@ function serializeUser(user: {
 
 export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
   app.post('/api/auth/login', async (req, res) => {
+    const meta = clientMeta(req);
     try {
       const email = String(req.body.email || '').trim().toLowerCase();
       const password = String(req.body.password || '');
@@ -45,34 +51,105 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user || !user.active) {
+        await writeAuditLog(prisma, {
+          category: 'security',
+          action: 'login_failed',
+          severity: 'warning',
+          success: false,
+          actorEmail: email,
+          entityType: 'session',
+          entityLabel: email,
+          summary: `Failed login attempt for ${email} (user not found or inactive)`,
+          ...meta,
+        });
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) {
+        await writeAuditLog(prisma, {
+          category: 'security',
+          action: 'login_failed',
+          severity: 'warning',
+          success: false,
+          actorId: user.id,
+          actorEmail: user.email,
+          actorName: user.name,
+          actorRole: user.role,
+          entityType: 'session',
+          entityId: user.id,
+          entityLabel: user.email,
+          summary: `Failed login attempt for ${user.email} (invalid password)`,
+          ...meta,
+        });
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      if (!isUserRole(user.role)) {
-        return res.status(500).json({ error: 'User has invalid role' });
+      const companies = parseCompanyAccess(user.companies, user.role);
+      if (companyNamesFromAccess(companies).length === 0) {
+        return res.status(403).json({ error: 'No company access assigned' });
+      }
+      const role = primaryRoleFromAccess(companies);
+
+      // Keep stored primary role in sync with company access
+      if (user.role !== role || user.companies !== serializeCompanyAccess(companies)) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role, companies: serializeCompanyAccess(companies) },
+        });
       }
 
-      const companies = resolveUserCompanies(user.role, user.companies);
       const token = signToken({
         sub: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role,
         companies,
+      });
+
+      await writeAuditLog(prisma, {
+        category: 'security',
+        action: 'login',
+        severity: 'info',
+        success: true,
+        actorId: user.id,
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: role,
+        entityType: 'session',
+        entityId: user.id,
+        entityLabel: user.email,
+        summary: `${user.name} signed in`,
+        metadata: { companies },
+        ...meta,
       });
 
       res.json({
         token,
-        user: serializeUser(user),
+        user: serializeUser({ ...user, role, companies: serializeCompanyAccess(companies) }),
       });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Login failed' });
+    }
+  });
+
+  app.post('/api/auth/logout', async (req, res) => {
+    try {
+      if (req.user) {
+        await auditFromRequest(prisma, req, {
+          category: 'security',
+          action: 'logout',
+          entityType: 'session',
+          entityId: req.user.id,
+          entityLabel: req.user.email,
+          summary: `${req.user.name} signed out`,
+        });
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Logout failed' });
     }
   });
 
@@ -114,22 +191,19 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       const email = String(req.body.email || '').trim().toLowerCase();
       const name = String(req.body.name || '').trim();
       const password = String(req.body.password || '');
-      const role = String(req.body.role || 'auditor') as UserRole;
 
       if (!email || !name || !password) {
         return res.status(400).json({ error: 'Email, name, and password are required' });
-      }
-      if (!isUserRole(role)) {
-        return res.status(400).json({ error: `Role must be one of: ${USER_ROLES.join(', ')}` });
       }
       if (password.length < 6) {
         return res.status(400).json({ error: 'Password must be at least 6 characters' });
       }
 
-      const companies = normalizeCompaniesInput(role, req.body.companies);
-      if (role !== 'admin' && companies.length === 0) {
-        return res.status(400).json({ error: 'Select at least one company' });
+      const companies = normalizeCompanyAccessInput(req.body.companies);
+      if (companyNamesFromAccess(companies).length === 0) {
+        return res.status(400).json({ error: 'Assign a role for at least one company' });
       }
+      const role = primaryRoleFromAccess(companies);
 
       const passwordHash = await bcrypt.hash(password, 10);
       const user = await prisma.user.create({
@@ -138,9 +212,26 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
           name,
           passwordHash,
           role,
-          companies: JSON.stringify(role === 'admin' ? [...COMPANIES] : companies),
+          companies: serializeCompanyAccess(companies),
         },
       });
+
+      await auditFromRequest(prisma, req, {
+        category: 'security',
+        action: 'create',
+        severity: 'warning',
+        entityType: 'user',
+        entityId: user.id,
+        entityLabel: user.email,
+        summary: `Created user ${user.name} (${user.email}) with company roles`,
+        changes: {
+          email: { from: null, to: user.email },
+          name: { from: null, to: user.name },
+          role: { from: null, to: role },
+          companies: { from: null, to: companies },
+        },
+      });
+
       res.status(201).json(serializeUser(user));
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {
@@ -157,6 +248,7 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'User not found' });
 
+      const beforeAccess = parseCompanyAccess(existing.companies, existing.role);
       const data: {
         name?: string;
         role?: string;
@@ -168,39 +260,69 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       if (body.name !== undefined) data.name = String(body.name).trim();
       if (body.active !== undefined) data.active = Boolean(body.active);
 
-      let nextRole = existing.role as UserRole;
-      if (body.role !== undefined) {
-        const role = String(body.role);
-        if (!isUserRole(role)) {
+      let nextAccess: CompanyAccessMap = beforeAccess;
+      if (body.companies !== undefined) {
+        nextAccess = normalizeCompanyAccessInput(body.companies);
+        if (companyNamesFromAccess(nextAccess).length === 0) {
+          return res.status(400).json({ error: 'Assign a role for at least one company' });
+        }
+        data.companies = serializeCompanyAccess(nextAccess);
+        data.role = primaryRoleFromAccess(nextAccess);
+      } else if (body.role !== undefined) {
+        // Legacy: single role applied to all currently assigned companies
+        const role = String(body.role) as UserRole;
+        if (!USER_ROLES.includes(role)) {
           return res.status(400).json({ error: `Role must be one of: ${USER_ROLES.join(', ')}` });
         }
+        const names = companyNamesFromAccess(beforeAccess);
+        nextAccess = Object.fromEntries(names.map(c => [c, role])) as CompanyAccessMap;
+        data.companies = serializeCompanyAccess(nextAccess);
         data.role = role;
-        nextRole = role;
       }
 
-      if (body.companies !== undefined || body.role !== undefined) {
-        const companies = normalizeCompaniesInput(
-          nextRole,
-          body.companies !== undefined ? body.companies : JSON.parse(existing.companies || '[]'),
-        );
-        if (nextRole !== 'admin' && companies.length === 0) {
-          return res.status(400).json({ error: 'Select at least one company' });
-        }
-        data.companies = JSON.stringify(nextRole === 'admin' ? [...COMPANIES] : companies);
-      }
-
+      let passwordChanged = false;
       if (body.password) {
         const password = String(body.password);
         if (password.length < 6) {
           return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
         data.passwordHash = await bcrypt.hash(password, 10);
+        passwordChanged = true;
       }
 
       const user = await prisma.user.update({
         where: { id: req.params.id },
         data,
       });
+
+      const afterAccess = parseCompanyAccess(user.companies, user.role);
+      await auditFromRequest(prisma, req, {
+        category: 'security',
+        action: 'update',
+        severity: passwordChanged || body.companies !== undefined || body.active === false ? 'warning' : 'info',
+        entityType: 'user',
+        entityId: user.id,
+        entityLabel: user.email,
+        summary: `Updated user ${user.name} (${user.email})`,
+        changes: computeChanges(
+          {
+            name: existing.name,
+            role: existing.role,
+            active: existing.active,
+            companies: beforeAccess,
+            password: false,
+          },
+          {
+            name: user.name,
+            role: user.role,
+            active: user.active,
+            companies: afterAccess,
+            password: passwordChanged,
+          },
+        ),
+        metadata: passwordChanged ? { passwordChanged: true } : undefined,
+      });
+
       res.json(serializeUser(user));
     } catch (error) {
       console.error(error);

@@ -148,10 +148,10 @@ async function main() {
 
   // --- Policies ---
   const policies = [
-    { title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01' },
-    { title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15' },
-    { title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10' },
-    { title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01' },
+    { title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01', links: JSON.stringify(['https://novapay-confluence/policy/is-policy']), attachments: '[]' },
+    { title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15', links: '[]', attachments: '[]' },
+    { title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10', links: '[]', attachments: '[]' },
+    { title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01', links: '[]', attachments: '[]' },
   ];
   for (const p of policies) {
     await prisma.policy.create({ data: { ...p, createdAt: new Date(), updatedAt: new Date() } });
