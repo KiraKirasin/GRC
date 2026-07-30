@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRisks } from '../context/RiskContext';
 import { useCompliance } from '../context/ComplianceContext';
 import {
@@ -7,8 +8,10 @@ import {
   CONTROL_FRAMEWORKS,
   EMPTY_RISK_ACCEPTANCE,
   FRAMEWORKS,
+  RISK_BUSINESS_UNITS,
   RISK_CATEGORIES,
   RISK_DOMAINS,
+  RiskDescriptionTemplate,
   RiskExistingControl,
   RiskFrameworkMapping,
   RiskItem,
@@ -16,6 +19,7 @@ import {
   RiskStatus,
   TaskStatus,
   calculateRiskLevel,
+  formatRiskDescription,
   genRiskEntityId,
   getRiskLevelColor,
   getRiskLevelLabel,
@@ -42,28 +46,38 @@ type RiskFormState = Omit<RiskItem, 'id' | 'createdAt' | 'updatedAt'>;
 
 function emptyForm(riskCode = ''): RiskFormState {
   const today = new Date().toISOString().slice(0, 10);
-  return {
+  const base = {
     riskCode,
     title: '',
     assets: '',
     category: '',
     domain: '',
+    company: '',
     businessUnit: '',
     riskOwner: '',
     technicalOwner: '',
-    status: 'identified',
+    status: 'identified' as RiskStatus,
     createdDate: today,
     lastAssessment: today,
+    businessImpact: '',
+    threat: '',
+    vulnerability: '',
+    descriptionTemplate: 'short' as RiskDescriptionTemplate,
+    description: '',
     inherentLikelihood: 1,
     inherentImpact: 1,
     residualLikelihood: 1,
     residualImpact: 1,
-    existingControls: [],
+    existingControls: [] as RiskExistingControl[],
     mitigationsEnabled: false,
-    mitigations: [],
-    frameworkMappings: [],
+    mitigations: [] as RiskMitigationAction[],
+    frameworkMappings: [] as RiskFrameworkMapping[],
     acceptance: { ...EMPTY_RISK_ACCEPTANCE },
     notes: '',
+  };
+  return {
+    ...base,
+    description: formatRiskDescription(base),
   };
 }
 
@@ -148,7 +162,10 @@ function LikertRow({
 
 export default function RiskRegister() {
   const { t } = useTranslation();
-  const { risks, addRisk, updateRisk, deleteRisk } = useRisks();
+  const navigate = useNavigate();
+  const { id: routeId } = useParams<{ id?: string }>();
+  const pageMode = Boolean(routeId);
+  const { risks, addRisk, updateRisk, deleteRisk, getRisk } = useRisks();
   const { controls, addTask, updateTask } = useCompliance();
 
   const [showForm, setShowForm] = useState(false);
@@ -171,6 +188,8 @@ export default function RiskRegister() {
       r.riskCode.toLowerCase().includes(q) ||
       r.riskOwner.toLowerCase().includes(q) ||
       r.domain.toLowerCase().includes(q) ||
+      r.company.toLowerCase().includes(q) ||
+      r.description.toLowerCase().includes(q) ||
       r.assets.toLowerCase().includes(q);
     const matchesCat = !filterCat || r.category === filterCat;
     const matchesStatus = !filterStatus || r.status === filterStatus;
@@ -211,7 +230,7 @@ export default function RiskRegister() {
     setShowForm(true);
   };
 
-  const openEdit = (r: RiskItem) => {
+  const fillFormFromRisk = (r: RiskItem) => {
     const n = normalizeRiskItem(r);
     setForm({
       riskCode: n.riskCode,
@@ -219,12 +238,18 @@ export default function RiskRegister() {
       assets: n.assets,
       category: n.category,
       domain: n.domain,
+      company: n.company,
       businessUnit: n.businessUnit,
       riskOwner: n.riskOwner,
       technicalOwner: n.technicalOwner,
       status: n.status,
       createdDate: n.createdDate,
       lastAssessment: n.lastAssessment,
+      businessImpact: n.businessImpact,
+      threat: n.threat,
+      vulnerability: n.vulnerability,
+      descriptionTemplate: n.descriptionTemplate,
+      description: n.description,
       inherentLikelihood: n.inherentLikelihood,
       inherentImpact: n.inherentImpact,
       residualLikelihood: n.residualLikelihood,
@@ -240,8 +265,37 @@ export default function RiskRegister() {
     setEditingId(r.id);
     setControlQuery('');
     setMitigationQuery('');
+  };
+
+  const openEdit = (r: RiskItem) => {
+    fillFormFromRisk(r);
     setShowForm(true);
   };
+
+  const openInWindow = (r: RiskItem) => {
+    window.open(`/risks/${r.id}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const patchDescriptionParts = (
+    patch: Partial<Pick<RiskFormState, 'businessImpact' | 'assets' | 'threat' | 'vulnerability' | 'descriptionTemplate'>>,
+  ) => {
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      return {
+        ...next,
+        description: formatRiskDescription(next),
+      };
+    });
+  };
+
+  useEffect(() => {
+    if (!routeId) return;
+    const r = getRisk(routeId);
+    if (r) {
+      fillFormFromRisk(r);
+      setShowForm(false);
+    }
+  }, [routeId, risks]);
 
   const syncMitigationTasks = (
     riskId: string,
@@ -304,6 +358,7 @@ export default function RiskRegister() {
     setShowForm(false);
     setForm(emptyForm());
     setEditingId(null);
+    if (pageMode) navigate('/risks');
   };
 
   const addExistingFromRepo = (controlId: string) => {
@@ -381,6 +436,8 @@ export default function RiskRegister() {
 
   return (
     <div>
+      {!pageMode && (
+      <>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">{t('riskRegister.title')}</h2>
@@ -472,10 +529,16 @@ export default function RiskRegister() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button onClick={() => openEdit(r)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">
                           {t('common.edit')}
                         </button>
+                        <button onClick={() => openInWindow(r)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">
+                          {t('riskRegister.openInWindow')}
+                        </button>
+                        <Link to={`/risks/${r.id}`} className="text-brand-600 hover:text-brand-800 text-xs font-medium">
+                          {t('riskRegister.openPage')}
+                        </Link>
                         <button onClick={() => setDeleteConfirm(r.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">
                           {t('common.delete')}
                         </button>
@@ -488,8 +551,17 @@ export default function RiskRegister() {
           </table>
         </div>
       )}
+      </>
+      )}
 
-      {deleteConfirm && (
+      {pageMode && !editingId && (
+        <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-gray-200">
+          <p className="text-gray-500 mb-3">{t('riskRegister.riskNotFound')}</p>
+          <Link to="/risks" className="text-sm text-brand-600 font-medium">{t('riskRegister.backToRegister')}</Link>
+        </div>
+      )}
+
+      {deleteConfirm && !pageMode && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4">
             <p className="text-gray-900 font-medium mb-4">{t('riskRegister.deleteConfirm')}</p>
@@ -508,17 +580,43 @@ export default function RiskRegister() {
         </div>
       )}
 
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl p-6 shadow-xl max-w-4xl w-full mx-4 my-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {isEditing ? t('riskRegister.editRisk') : t('riskRegister.addRisk')}
-              </h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+      {(showForm || (pageMode && editingId)) && (
+        <div className={pageMode
+          ? 'w-full'
+          : 'fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-hidden p-4 pt-8'}>
+          <div className={pageMode
+            ? 'bg-white rounded-xl border border-gray-200 shadow-sm max-w-4xl w-full max-h-[calc(100vh-6rem)] flex flex-col overflow-hidden'
+            : 'bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden'}>
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-200 shrink-0 bg-white">
+              <div className="min-w-0">
+                {pageMode && (
+                  <Link to="/risks" className="text-xs text-brand-600 hover:text-brand-800 font-medium">
+                    ← {t('riskRegister.backToRegister')}
+                  </Link>
+                )}
+                <h3 className="text-lg font-semibold text-gray-900 truncate">
+                  {isEditing || pageMode ? t('riskRegister.editRisk') : t('riskRegister.addRisk')}
+                  {(form.riskCode || form.title) ? ` · ${form.riskCode || form.title}` : ''}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {editingId && !pageMode && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(`/risks/${editingId}`, '_blank', 'noopener,noreferrer')}
+                    className="px-3 py-1.5 text-xs font-medium text-brand-700 bg-brand-50 rounded-lg hover:bg-brand-100"
+                  >
+                    {t('riskRegister.openInWindow')}
+                  </button>
+                )}
+                {!pageMode && (
+                  <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-1">&times;</button>
+                )}
+              </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="overflow-y-auto flex-1 px-6 py-4">
+            <form onSubmit={handleSubmit} className="space-y-6" id="risk-card-form">
               {/* 1. Identity */}
               <section className="space-y-3">
                 <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-1">{t('riskRegister.sectionIdentity')}</h4>
@@ -531,9 +629,19 @@ export default function RiskRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.riskTitle')}</label>
                     <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required placeholder={t('riskRegister.titlePlaceholder')} />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.assets')}</label>
-                    <input type="text" value={form.assets} onChange={(e) => setForm({ ...form, assets: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder={t('riskRegister.assetsPlaceholder')} />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.company')}</label>
+                    <select value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                      <option value="">—</option>
+                      {COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.businessUnit')}</label>
+                    <select value={form.businessUnit} onChange={(e) => setForm({ ...form, businessUnit: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                      <option value="">—</option>
+                      {RISK_BUSINESS_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.category')}</label>
@@ -547,17 +655,6 @@ export default function RiskRegister() {
                     <select value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                       <option value="">—</option>
                       {RISK_DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.businessUnit')}</label>
-                    <select value={form.businessUnit} onChange={(e) => setForm({ ...form, businessUnit: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                      <option value="">—</option>
-                      {COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                      <option value="IT">IT</option>
-                      <option value="Security">Security</option>
-                      <option value="Risk">Risk</option>
-                      <option value="All">All</option>
                     </select>
                   </div>
                   <div>
@@ -584,6 +681,81 @@ export default function RiskRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.lastAssessment')}</label>
                     <input type="date" value={form.lastAssessment} onChange={(e) => setForm({ ...form, lastAssessment: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
                   </div>
+                </div>
+              </section>
+
+              {/* Description statement */}
+              <section className="space-y-3">
+                <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-1">{t('riskRegister.sectionDescription')}</h4>
+                <p className="text-xs text-gray-500">{t('riskRegister.descriptionHint')}</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.descriptionTemplate')}</label>
+                  <select
+                    value={form.descriptionTemplate}
+                    onChange={(e) => patchDescriptionParts({ descriptionTemplate: e.target.value as RiskDescriptionTemplate })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="short">{t('riskRegister.templateShort')}</option>
+                    <option value="formal">{t('riskRegister.templateFormal')}</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.businessImpact')}</label>
+                    <input
+                      type="text"
+                      value={form.businessImpact}
+                      onChange={(e) => patchDescriptionParts({ businessImpact: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="<Business Impact>"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.assets')}</label>
+                    <input
+                      type="text"
+                      value={form.assets}
+                      onChange={(e) => patchDescriptionParts({ assets: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="<Asset>"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.threat')}</label>
+                    <input
+                      type="text"
+                      value={form.threat}
+                      onChange={(e) => patchDescriptionParts({ threat: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="<Threat>"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.vulnerability')}</label>
+                    <input
+                      type="text"
+                      value={form.vulnerability}
+                      onChange={(e) => patchDescriptionParts({ vulnerability: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="<Vulnerability>"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('riskRegister.composedDescription')}</label>
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50"
+                    rows={3}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, description: formatRiskDescription(f) }))}
+                    className="mt-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
+                  >
+                    {t('riskRegister.rebuildDescription')}
+                  </button>
                 </div>
               </section>
 
@@ -953,15 +1125,23 @@ export default function RiskRegister() {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+              <div className="flex justify-end gap-3 pt-2 sticky bottom-0 bg-white pb-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pageMode) navigate('/risks');
+                    else setShowForm(false);
+                  }}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                >
                   {t('common.cancel')}
                 </button>
                 <button type="submit" className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700">
-                  {isEditing ? t('common.save') : t('common.add')}
+                  {isEditing || pageMode ? t('common.save') : t('common.add')}
                 </button>
               </div>
             </form>
+            </div>
           </div>
         </div>
       )}

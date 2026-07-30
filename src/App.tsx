@@ -44,6 +44,7 @@ export default function App() {
               <Route element={<Layout />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/risks" element={<RiskRegister />} />
+                <Route path="/risks/:id" element={<RiskRegister />} />
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/controls" element={<ControlsPage />} />
                 <Route path="/evidence-database" element={<ControlsDatabasePage />} />
