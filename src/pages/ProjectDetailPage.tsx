@@ -72,6 +72,7 @@ export default function ProjectDetailPage() {
     evidence: [] as string[], evidenceLinks: [] as string[],
     mitigation: { ...EMPTY_MITIGATION } as ControlMitigation,
   });
+  const [evidenceDbSearch, setEvidenceDbSearch] = useState('');
   const [savingControl, setSavingControl] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [attachmentError, setAttachmentError] = useState('');
@@ -323,8 +324,108 @@ export default function ProjectDetailPage() {
   const expandAllDomains = () => setCollapsedDomains(new Set());
   const collapseAllDomains = () => setCollapsedDomains(new Set(allDomainKeys));
 
+  type EvidencePickerOption = {
+    value: string;
+    controlTitle: string;
+    controlCode?: string;
+    framework: string;
+    source: 'database' | 'project';
+  };
+
+  const evidencePickerOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: EvidencePickerOption[] = [];
+
+    const pushOption = (opt: EvidencePickerOption) => {
+      const key = opt.value.toLowerCase();
+      if (!opt.value.trim() || seen.has(key)) return;
+      seen.add(key);
+      options.push(opt);
+    };
+
+    for (const c of controls) {
+      for (const file of c.evidence) {
+        pushOption({
+          value: file,
+          controlTitle: c.title,
+          controlCode: c.controlCode,
+          framework: c.framework,
+          source: 'database',
+        });
+      }
+      for (const file of c.attachments) {
+        pushOption({
+          value: file,
+          controlTitle: c.title,
+          controlCode: c.controlCode,
+          framework: c.framework,
+          source: 'database',
+        });
+      }
+    }
+
+    for (const c of projectControls) {
+      if (editingControl && c.id === editingControl.id) continue;
+      for (const file of c.evidence) {
+        pushOption({
+          value: file,
+          controlTitle: c.title,
+          controlCode: c.controlCode,
+          framework: c.framework,
+          source: 'project',
+        });
+      }
+      for (const att of c.attachments) {
+        pushOption({
+          value: att.name,
+          controlTitle: c.title,
+          controlCode: c.controlCode,
+          framework: c.framework,
+          source: 'project',
+        });
+      }
+    }
+
+    return options;
+  }, [controls, projectControls, editingControl]);
+
+  const filteredEvidencePickerOptions = useMemo(() => {
+    const q = evidenceDbSearch.toLowerCase().trim();
+    if (!q) return [];
+    return evidencePickerOptions
+      .filter(opt =>
+        opt.value.toLowerCase().includes(q) ||
+        opt.controlTitle.toLowerCase().includes(q) ||
+        (opt.controlCode || '').toLowerCase().includes(q) ||
+        opt.framework.toLowerCase().includes(q)
+      )
+      .sort((a, b) => {
+        if (a.source !== b.source) return a.source === 'database' ? -1 : 1;
+        return a.value.localeCompare(b.value);
+      })
+      .slice(0, 12);
+  }, [evidenceDbSearch, evidencePickerOptions]);
+
+  const addEvidenceItem = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setControlForm(prev => {
+      if (prev.evidence.some(e => e.toLowerCase() === trimmed.toLowerCase())) return prev;
+      return { ...prev, evidence: [...prev.evidence, trimmed] };
+    });
+    setEvidenceDbSearch('');
+  };
+
+  const removeEvidenceItem = (value: string) => {
+    setControlForm(prev => ({
+      ...prev,
+      evidence: prev.evidence.filter(e => e !== value),
+    }));
+  };
+
   const openEditControl = (c: ProjectControl) => {
     setAttachmentError('');
+    setEvidenceDbSearch('');
     setEditingControl(c);
     const mitigation: ControlMitigation = {
       ...EMPTY_MITIGATION,
@@ -1791,6 +1892,70 @@ export default function ProjectDetailPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t('controls.evidence')} (files, comma-separated)</label>
+                <div className="relative mb-2">
+                  <input
+                    type="search"
+                    value={evidenceDbSearch}
+                    onChange={e => setEvidenceDbSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                    placeholder={t('projects.searchEvidenceDb')}
+                  />
+                  {evidenceDbSearch.trim() && (
+                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+                      {filteredEvidencePickerOptions.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-400">{t('projects.noEvidenceSearchResults')}</p>
+                      ) : (
+                        filteredEvidencePickerOptions.map(opt => {
+                          const alreadyAdded = controlForm.evidence.some(
+                            e => e.toLowerCase() === opt.value.toLowerCase()
+                          );
+                          return (
+                            <button
+                              key={`${opt.source}-${opt.value}-${opt.controlTitle}`}
+                              type="button"
+                              disabled={alreadyAdded}
+                              onClick={() => addEvidenceItem(opt.value)}
+                              className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                opt.source === 'database' ? 'bg-brand-50/40' : ''
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-medium text-gray-900 truncate">{opt.value}</span>
+                                <span className={`text-[10px] uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded ${
+                                  opt.source === 'database'
+                                    ? 'bg-brand-100 text-brand-700'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {opt.source === 'database' ? t('projects.evidenceFromDatabase') : t('projects.evidenceFromProject')}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 truncate mt-0.5">
+                                {[opt.controlCode, opt.controlTitle, opt.framework].filter(Boolean).join(' · ')}
+                              </p>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+                {controlForm.evidence.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {controlForm.evidence.map(file => (
+                      <span key={file} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                        {file}
+                        <button
+                          type="button"
+                          onClick={() => removeEvidenceItem(file)}
+                          className="text-blue-500 hover:text-blue-800 leading-none"
+                          aria-label={t('common.delete')}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <input
                   type="text"
                   value={controlForm.evidence.join(', ')}
@@ -1801,6 +1966,7 @@ export default function ProjectDetailPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   placeholder="Report.pdf, Screenshot.png"
                 />
+                <p className="text-xs text-gray-500 mt-1">{t('projects.evidenceSearchHint')}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t('database.evidenceLinks')}</label>

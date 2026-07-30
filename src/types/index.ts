@@ -502,6 +502,24 @@ export const PCI_DSS_DOMAIN_ORDER = [
   'Incident Response',          // Req 12
 ] as const;
 
+/** ISO 27001 thematic domain order (bilingual EN / UK as stored in category). */
+export const ISO27001_DOMAIN_ORDER = [
+  'Information security policies / Політики інформаційної безпеки',
+  'Organization of information security / Організація інформаційної безпеки',
+  'Human resource security / Безпека людських ресурсів',
+  'Asset management / Управління активами',
+  'Access control / Контроль доступу',
+  'Cryptography / Кріптографія',
+  'Physical security and environmental security / Фізична безпека та безпека довкілля',
+  'Operations security / Операційна безпека',
+  'Communications security / Безпека комунікацій',
+  'System acquisition, development and maintenance / Придбання, розробка та обслуговування систем',
+  'Supplier relationships / Відносини з постачальниками',
+  'Information security incident management / Управління інцидентами інформаційної безпеки',
+  'Information security aspects of business continuity management / Аспекти управління безперервністю бізнесу',
+  'Compliance / Відповідність вимогам (комплаєнс)',
+] as const;
+
 export function compareControlCodes(a = '', b = ''): number {
   const parse = (s: string) =>
     s
@@ -534,6 +552,11 @@ export function compareDomainsByStandard(a: string, b: string): number {
   const ib = PCI_DSS_DOMAIN_ORDER.indexOf(b as (typeof PCI_DSS_DOMAIN_ORDER)[number]);
   if (ia !== -1 || ib !== -1) {
     return (ia === -1 ? 1000 : ia) - (ib === -1 ? 1000 : ib);
+  }
+  const iIsoA = ISO27001_DOMAIN_ORDER.indexOf(a as (typeof ISO27001_DOMAIN_ORDER)[number]);
+  const iIsoB = ISO27001_DOMAIN_ORDER.indexOf(b as (typeof ISO27001_DOMAIN_ORDER)[number]);
+  if (iIsoA !== -1 || iIsoB !== -1) {
+    return (iIsoA === -1 ? 1000 : iIsoA) - (iIsoB === -1 ? 1000 : iIsoB);
   }
   return a.localeCompare(b);
 }

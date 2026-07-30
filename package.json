@@ -15,7 +15,8 @@
     "import-controls": "npx tsx prisma/import-controls.ts",
     "import-pci": "npx tsx prisma/import-pci-controls.ts",
     "import-nbu95": "npx tsx prisma/import-nbu95-controls.ts",
-    "import-nbu187": "npx tsx prisma/import-nbu187-controls.ts"
+    "import-nbu187": "npx tsx prisma/import-nbu187-controls.ts",
+    "import-iso27001": "npx tsx prisma/import-iso27001-controls.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

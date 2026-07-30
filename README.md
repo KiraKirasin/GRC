@@ -4,6 +4,8 @@ Governance, Risk, and Compliance (GRC) pilot application for managing controls, 
 
 Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 
+> Ukrainian version: [README.uk.md](README.uk.md)
+
 ## Features
 
 - **Dashboard** — compliance overview and key metrics
