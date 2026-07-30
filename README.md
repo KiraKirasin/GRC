@@ -71,13 +71,7 @@ flowchart TB
 
 **Deployment:** Docker Compose runs two containers (`app` + `caddy`). Persistent data lives in the `grc-data` volume at `/data`. See [docs/deploy-gcp.md](docs/deploy-gcp.md).
 
-### Interactive architecture canvas (Cursor)
-
-An interactive architecture diagram with the full technology stack, data flows, domain model, and deployment topology is available as a **Cursor Canvas**:
-
-`~/.cursor/projects/Users-kirasavchenko-Documents-GRC/canvases/grc-architecture.canvas.tsx`
-
-Open this file in Cursor to view the diagram beside the chat. It includes:
+###  architecture 
 
 - System context diagram (Browser → Caddy → Express → Auth / Prisma → SQLite)
 - Technology stack table
