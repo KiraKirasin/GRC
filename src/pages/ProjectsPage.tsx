@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useProjects } from '../context/ProjectContext';
-import { usePermission } from '../context/AuthContext';
+import { useAuth, usePermission } from '../context/AuthContext';
 import { apiFetch } from '../lib/api';
 import { PROJECT_TYPES, PROJECT_STATUSES, COMPANIES, CompanyName, ProjectType } from '../types';
+import { userCanAccessCompany } from '../lib/permissions';
 
 const typeIcon: Record<string, string> = {
   audit: '🔍', implementation: '🛡️', annual_review: '🔄', gap_assessment: '📋',
@@ -24,8 +25,13 @@ export default function ProjectsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { projects, addProject, deleteProject } = useProjects();
+  const { user } = useAuth();
   const canWrite = usePermission('projects:write');
   const canDelete = usePermission('projects:delete');
+  const allowedCompanies = useMemo(
+    () => COMPANIES.filter(c => userCanAccessCompany(user, c)),
+    [user],
+  );
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -43,6 +49,12 @@ export default function ProjectsPage() {
     title: '', company: 'NovaPay LLC' as CompanyName, type: 'audit' as ProjectType,
     framework: '', description: '', owner: '', startDate: '', targetDate: '',
   });
+
+  useEffect(() => {
+    if (allowedCompanies.length && !allowedCompanies.includes(form.company)) {
+      setForm(f => ({ ...f, company: allowedCompanies[0] }));
+    }
+  }, [allowedCompanies]);
 
   useEffect(() => {
     apiFetch('/api/frameworks')
@@ -194,7 +206,7 @@ export default function ProjectsPage() {
         </select>
         <select value={filterCompany} onChange={e => setFilterCompany(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">{t('common.all')} — {t('projects.company')}</option>
-          {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {allowedCompanies.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
@@ -281,7 +293,7 @@ export default function ProjectsPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.company')}</label>
                   <select value={form.company} onChange={e => setForm({ ...form, company: e.target.value as CompanyName })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                    {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {allowedCompanies.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

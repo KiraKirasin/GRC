@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from './LanguageSwitcher';
 import { useAuth, usePermission } from '../context/AuthContext';
 import { roleLabel } from '../lib/permissions';
+import { APP_VERSION } from '../version';
 
 const NAV_ITEMS = [
   { to: '/', label: 'nav.dashboard', end: true, icon: '📊' },
@@ -99,6 +100,10 @@ export default function Layout() {
               >
                 {t('auth.logout')}
               </button>
+            </div>
+            <div className="pt-2 border-t border-gray-50 text-center">
+              <p className="text-[10px] text-gray-400 leading-tight">© {new Date().getFullYear()} NovaPay</p>
+              <p className="text-[10px] text-gray-300 mt-0.5">v{APP_VERSION}</p>
             </div>
           </div>
         )}

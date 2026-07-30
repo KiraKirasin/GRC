@@ -1,5 +1,5 @@
 import jwt, { type SignOptions } from 'jsonwebtoken';
-import type { UserRole } from './permissions.js';
+import type { CompanyName, UserRole } from './permissions.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'grc-dev-secret-change-in-production';
 const JWT_EXPIRES = (process.env.JWT_EXPIRES || '7d') as SignOptions['expiresIn'];
@@ -9,6 +9,7 @@ export interface AuthTokenPayload {
   email: string;
   name: string;
   role: UserRole;
+  companies: CompanyName[];
 }
 
 export function signToken(payload: AuthTokenPayload): string {

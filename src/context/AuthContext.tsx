@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { apiFetch, clearToken, getToken, setToken } from '../lib/api';
-import { type AuthUser, type Permission, roleHasPermission } from '../lib/permissions';
+import {
+  type AuthUser,
+  type Permission,
+  roleHasPermission,
+  userCanAccessCompany,
+} from '../lib/permissions';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -8,6 +13,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: Permission) => boolean;
+  canAccessCompany: (company: string) => boolean;
   refreshUser: () => Promise<void>;
 }
 
@@ -72,9 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const canAccessCompany = useCallback(
+    (company: string) => userCanAccessCompany(user, company),
+    [user],
+  );
+
   const value = useMemo(
-    () => ({ user, loading, login, logout, hasPermission, refreshUser }),
-    [user, loading, login, logout, hasPermission, refreshUser],
+    () => ({ user, loading, login, logout, hasPermission, canAccessCompany, refreshUser }),
+    [user, loading, login, logout, hasPermission, canAccessCompany, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

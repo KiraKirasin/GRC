@@ -1,12 +1,18 @@
 import type { NextFunction, Request, Response } from 'express';
 import { verifyToken } from './jwt.js';
-import { type Permission, roleHasPermission } from './permissions.js';
+import {
+  type CompanyName,
+  type Permission,
+  resolveUserCompanies,
+  roleHasPermission,
+} from './permissions.js';
 
 export interface AuthUser {
   id: string;
   email: string;
   name: string;
   role: import('./permissions.js').UserRole;
+  companies: CompanyName[];
 }
 
 declare global {
@@ -43,6 +49,9 @@ export function authenticateUnlessPublic(req: Request, res: Response, next: Next
     email: payload.email,
     name: payload.name,
     role: payload.role,
+    companies: Array.isArray(payload.companies)
+      ? resolveUserCompanies(payload.role, JSON.stringify(payload.companies))
+      : resolveUserCompanies(payload.role, '[]'),
   };
   next();
 }

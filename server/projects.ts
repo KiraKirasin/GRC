@@ -207,13 +207,16 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.get('/api/projects', async (_req, res) => {
+  app.get('/api/projects', async (req, res) => {
     try {
       const projects = await prisma.project.findMany({
         orderBy: { updatedAt: 'desc' },
         include: { _count: { select: { projectControls: true } } },
       });
-      res.json(projects.map(p => serializeProject(p, p._count.projectControls)));
+      const allowed = req.user?.role === 'admin'
+        ? projects
+        : projects.filter(p => (req.user?.companies || []).includes(p.company as never));
+      res.json(allowed.map(p => serializeProject(p, p._count.projectControls)));
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Failed to load projects' });
@@ -226,6 +229,11 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       const framework = String(body.framework || '').trim();
       if (!framework) {
         return res.status(400).json({ error: 'Framework is required' });
+      }
+
+      const company = String(body.company || 'NovaPay LLC').trim();
+      if (req.user?.role !== 'admin' && !(req.user?.companies || []).includes(company as never)) {
+        return res.status(403).json({ error: 'No access to this company' });
       }
 
       const allControls = await prisma.gRCControl.findMany({
@@ -262,7 +270,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       const project = await prisma.project.create({
         data: {
           title: body.title,
-          company: body.company || 'NovaPay LLC',
+          company: company || 'NovaPay LLC',
           type: body.type || 'audit',
           framework: projectFramework,
           status: body.status || 'created',
@@ -317,6 +325,12 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         include: { _count: { select: { projectControls: true } } },
       });
       if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (
+        req.user?.role !== 'admin' &&
+        !(req.user?.companies || []).includes(project.company as never)
+      ) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
       res.json(serializeProject(project, project._count.projectControls));
     } catch (error) {
       console.error(error);
