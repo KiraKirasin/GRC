@@ -69,12 +69,21 @@ export interface RiskItem {
   assets: string;
   category: string;
   domain: string;
+  /** Legal entity / company (separate from business unit) */
+  company: string;
   businessUnit: string;
   riskOwner: string;
   technicalOwner: string;
   status: RiskStatus;
   createdDate: string;
   lastAssessment: string;
+  /** Structured description parts */
+  businessImpact: string;
+  threat: string;
+  vulnerability: string;
+  descriptionTemplate: RiskDescriptionTemplate;
+  /** Composed statement from template + parts */
+  description: string;
   inherentLikelihood: number;
   inherentImpact: number;
   residualLikelihood: number;
@@ -96,6 +105,20 @@ export interface RiskItem {
 }
 
 export type RiskStatus = 'identified' | 'assessing' | 'mitigating' | 'accepted' | 'monitoring';
+
+export type RiskDescriptionTemplate = 'short' | 'formal';
+
+export const RISK_BUSINESS_UNITS = [
+  'IT',
+  'Security',
+  'Risk',
+  'Compliance',
+  'Operations',
+  'Finance',
+  'HR',
+  'Product',
+  'All',
+] as const;
 
 export const RISK_CATEGORIES = [
   'Application Security',
@@ -135,6 +158,23 @@ export function nextRiskCode(existing: { riskCode?: string }[]): string {
   return `${prefix}${String(max + 1).padStart(4, '0')}`;
 }
 
+export function formatRiskDescription(input: {
+  businessImpact?: string;
+  assets?: string;
+  threat?: string;
+  vulnerability?: string;
+  descriptionTemplate?: RiskDescriptionTemplate;
+}): string {
+  const bi = (input.businessImpact || '').trim() || '<Business Impact>';
+  const asset = (input.assets || '').trim() || '<Asset>';
+  const threat = (input.threat || '').trim() || '<Threat>';
+  const vuln = (input.vulnerability || '').trim() || '<Vulnerability>';
+  if (input.descriptionTemplate === 'formal') {
+    return `There is a risk of ${bi} affecting ${asset} in the event that ${threat} exploits ${vuln}.`;
+  }
+  return `Risk of ${bi} in ${asset} if ${threat} exploits ${vuln}.`;
+}
+
 export function normalizeRiskItem(raw: Partial<RiskItem> & { id?: string }): RiskItem {
   const now = new Date().toISOString();
   const createdAt = raw.createdAt || now;
@@ -142,19 +182,34 @@ export function normalizeRiskItem(raw: Partial<RiskItem> & { id?: string }): Ris
     ...EMPTY_RISK_ACCEPTANCE,
     ...(raw.acceptance || {}),
   };
+  const businessImpact = raw.businessImpact || '';
+  const assets = raw.assets || '';
+  const threat = raw.threat || '';
+  const vulnerability = raw.vulnerability || '';
+  const descriptionTemplate: RiskDescriptionTemplate =
+    raw.descriptionTemplate === 'formal' ? 'formal' : 'short';
+  const description =
+    raw.description?.trim() ||
+    formatRiskDescription({ businessImpact, assets, threat, vulnerability, descriptionTemplate });
   return {
     id: raw.id || genRiskEntityId(),
     riskCode: raw.riskCode || '',
     title: raw.title || '',
-    assets: raw.assets || '',
+    assets,
     category: raw.category || '',
     domain: raw.domain || '',
+    company: raw.company || '',
     businessUnit: raw.businessUnit || '',
     riskOwner: raw.riskOwner || raw.owner || '',
     technicalOwner: raw.technicalOwner || '',
     status: raw.status || 'identified',
     createdDate: raw.createdDate || createdAt.slice(0, 10),
     lastAssessment: raw.lastAssessment || '',
+    businessImpact,
+    threat,
+    vulnerability,
+    descriptionTemplate,
+    description,
     inherentLikelihood: Number(raw.inherentLikelihood) || 1,
     inherentImpact: Number(raw.inherentImpact) || 1,
     residualLikelihood: Number(raw.residualLikelihood) || 1,
