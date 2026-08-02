@@ -10,6 +10,8 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
+    // Pilot may use HTTP IP; ignore TLS errors if APP_URL is later switched to https.
+    ignoreHTTPSErrors: true,
     trace: "on-first-retry",
   },
   projects: [

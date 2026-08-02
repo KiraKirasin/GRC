@@ -25,7 +25,9 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      GRC_DOMAIN: ${GRC_DOMAIN:-localhost}
+      # Default :80 HTTP site. Set GRC_DOMAIN + CADDY_AUTO_HTTPS=on for real TLS.
+      GRC_DOMAIN: ${GRC_DOMAIN:-:80}
+      CADDY_AUTO_HTTPS: ${CADDY_AUTO_HTTPS:-off}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

@@ -18,14 +18,16 @@
 #     if: ${{ always() && !cancelled() }}
 #   so a failure upstream still runs the next job (it may then fail on its
 #   own steps). !cancelled() keeps Cancel from forcing the whole chain to run.
+#   Deploy additionally requires needs.image.result == 'success' so it never
+#   tries to download a missing image artifact.
 #
 # Soft steps (not the escape hatch):
 #   Trivy uses step-level continue-on-error so SBOM/export still run after
 #   findings. OpenGrep / E2E use job-level continue-on-error so the workflow
 #   can stay green-ish while still showing red on those jobs.
 #
-# Deploy/e2e jobs always start; production VM / Playwright steps are gated
-# by step-level checks to main push only.
+# Deploy/e2e jobs always start when their gate allows; production VM /
+# Playwright steps are gated by step-level checks to main push only.
 #
 # Triggers: PRs and pushes to main, plus manual workflow_dispatch.
 # =============================================================================
@@ -54,7 +56,7 @@ permissions:
   security-events: write
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
   IMAGE_NAME: grc-app
   # Immutable tag = commit SHA so every deploy is traceable
   IMAGE_TAG: ${{ github.sha }}
@@ -138,6 +140,7 @@ jobs:
         # --severity ERROR: only ERROR-level rules count toward failure
         # --error: non-zero exit when matching findings exist
         # --sarif-output: for GitHub Code Scanning upload (next step)
+        # --exclude: path patterns (not --exclude-dir; -e is pattern search)
         run: |
           opengrep scan \
             --config p/security-audit \
@@ -145,10 +148,10 @@ jobs:
             --severity ERROR \
             --error \
             --sarif-output=opengrep.sarif \
-            --exclude-dir=node_modules \
-            --exclude-dir=dist \
-            --exclude-dir=coverage \
-            --exclude-dir=.git \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=coverage \
+            --exclude=.git \
             .
 
       - name: Upload OpenGrep results to GitHub Security
@@ -210,7 +213,7 @@ jobs:
         # Soft step: findings fail this step; continue-on-error keeps export alive
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           format: sarif
@@ -253,8 +256,9 @@ jobs:
     name: Deploy exact image to GCP VM
     runs-on: ubuntu-latest
     needs: image
-    # Escape hatch: run even when image failed (steps may then no-op / fail).
-    if: ${{ always() && !cancelled() }}
+    # Escape hatch + hard require: never Skipped when image fails transitively,
+    # but only promote when the image job actually uploaded the artifact.
+    if: ${{ always() && !cancelled() && needs.image.result == 'success' }}
     timeout-minutes: 20
     # production env only on main push so PRs are not held by deploy protection
     environment:
@@ -264,8 +268,11 @@ jobs:
     steps:
       - name: Decide whether to promote to production
         id: promote
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "$EVENT_NAME" != "pull_request" ] && [ "$GIT_REF" = "refs/heads/main" ]; then
             echo "should_deploy=true" >> "${GITHUB_OUTPUT}"
             echo "Promoting image to production VM."
           else
@@ -386,15 +393,18 @@ jobs:
     name: Post-deployment E2E
     runs-on: ubuntu-latest
     needs: deploy
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && needs.deploy.result == 'success' }}
     continue-on-error: true
     timeout-minutes: 20
 
     steps:
       - name: Decide whether to run E2E against production
         id: e2e_gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "$EVENT_NAME" != "pull_request" ] && [ "$GIT_REF" = "refs/heads/main" ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
           else
             echo "should_run=false" >> "${GITHUB_OUTPUT}"

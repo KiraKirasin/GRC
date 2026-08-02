@@ -48,4 +48,8 @@ EXPOSE 3001
 
 VOLUME ["/data"]
 
+# Run as non-root (node user from the official image) for container hardening.
+RUN chown -R node:node /app /data
+USER node
+
 CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx server/index.ts"]
