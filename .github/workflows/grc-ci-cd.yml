@@ -134,10 +134,15 @@ jobs:
           echo "${HOME}/bin" >> "${GITHUB_PATH}"
           "${HOME}/bin/opengrep" --version
 
+      - name: OpenGrep help
+        # Confirm exclude flags for the pinned binary (CI diagnostic).
+        run: opengrep scan --help
+
       - name: OpenGrep SAST scan
         # --severity ERROR: only ERROR-level rules count toward failure
         # --error: non-zero exit when matching findings exist
         # --sarif-output: for GitHub Code Scanning upload (next step)
+        # --exclude: path patterns (not --exclude-dir; -e is pattern search)
         run: |
           opengrep scan \
             --config p/security-audit \
@@ -145,10 +150,10 @@ jobs:
             --severity ERROR \
             --error \
             --sarif-output=opengrep.sarif \
-            --exclude-dir=node_modules \
-            --exclude-dir=dist \
-            --exclude-dir=coverage \
-            --exclude-dir=.git \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=coverage \
+            --exclude=.git \
             .
 
       - name: Upload OpenGrep results to GitHub Security
@@ -210,7 +215,7 @@ jobs:
         # Soft step: findings fail this step; continue-on-error keeps export alive
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           format: sarif
