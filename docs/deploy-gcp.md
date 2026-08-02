@@ -355,10 +355,12 @@ Deploy target defaults: VM `grc-pilot`, zone `us-central1-a`, path `/opt/grc`, h
 
 | Kind | Name | Purpose |
 |---|---|---|
-| Variable | `GCP_PROJECT_ID` | GCP project id |
+| Variable | `GCP_PROJECT_ID` | GCP project id (Actions → Variables; required — empty shows as blank in logs) |
 | Secret | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/.../locations/global/workloadIdentityPools/.../providers/...` |
 | Secret | `GCP_SERVICE_ACCOUNT` | SA email used by Actions (Compute OS Login / SSH + instance access) |
-| Environment | `production` | Protects deploy job; set URL to the app |
+| Environment | `production` | Used by the deploy job on `main`. If you store secrets on the environment, put the two GCP secrets there (repo-level secrets also work). |
+
+The deploy job fails fast with a clear error when any of these are missing (empty `${{ secrets.* }}` makes `google-github-actions/auth` report “must specify exactly one of workload_identity_provider or credentials_json”).
 
 OIDC (Workload Identity Federation) setup outline:
 
