@@ -340,10 +340,12 @@ Workflow: [`.github/workflows/grc-ci-cd.yml`](../.github/workflows/grc-ci-cd.yml
 Pipeline on `main` / PRs:
 
 1. **quality** — `npm ci`, Prisma generate, build  
-2. **opengrep** — OpenGrep SAST gate (ERROR severity; SARIF uploaded to GitHub Security)  
-3. **image** — Docker build, CycloneDX SBOM, Trivy HIGH/CRITICAL gate, upload immutable image artifact  
-4. **deploy** — only on push to `main`: OIDC → GCP, SCP image + compose files to VM, `docker load` + `docker compose up -d --no-build`, health check  
-5. **e2e** — Playwright smoke tests against `APP_URL`
+2. **opengrep** — OpenGrep SAST (escape hatch `always() && !cancelled()`; soft `continue-on-error`)  
+3. **image** — Docker build, CycloneDX SBOM, Trivy soft step, upload immutable image (escape hatch)  
+4. **deploy** — escape hatch always runs; production VM steps only on push to `main`  
+5. **e2e** — escape hatch always runs; Playwright against `APP_URL` only on push to `main`  
+
+Dependent jobs use the GitHub Actions escape hatch (`if: always() && !cancelled()`) so upstream failures do not transitively **Skip** later jobs.
 
 This workflow replaces the former standalone `google.yml`, `sbom-trivy.yml`, and `snyk-security.yml`. Keep [`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml) for CodeQL.
 

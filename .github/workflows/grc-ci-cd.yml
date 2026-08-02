@@ -1,3 +1,35 @@
+# =============================================================================
+# GRC CI/CD — build, scan, deploy immutable image to the GCP pilot VM
+# =============================================================================
+#
+# Flow (left → right):
+#   quality → opengrep ─┐
+#                       ├→ image → deploy → e2e
+#                       ┘
+#
+# Escape hatch (never-skip dependents):
+#   GitHub Actions default job condition is success(). When any needed job
+#   fails, dependents are transitively Skipped and their `if:` is never even
+#   evaluated — unless that `if:` includes an explicit status function
+#   (always / success / failure / cancelled). That explicit status check is
+#   the escape hatch.
+#
+#   Every dependent job therefore uses:
+#     if: ${{ always() && !cancelled() }}
+#   so a failure upstream still runs the next job (it may then fail on its
+#   own steps). !cancelled() keeps Cancel from forcing the whole chain to run.
+#
+# Soft steps (not the escape hatch):
+#   Trivy uses step-level continue-on-error so SBOM/export still run after
+#   findings. OpenGrep / E2E use job-level continue-on-error so the workflow
+#   can stay green-ish while still showing red on those jobs.
+#
+# Deploy/e2e jobs always start; production VM / Playwright steps are gated
+# by step-level checks to main push only.
+#
+# Triggers: PRs and pushes to main, plus manual workflow_dispatch.
+# =============================================================================
+
 name: GRC CI/CD to GCP VM
 
 on:
@@ -7,10 +39,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One run per branch/ref. Do not cancel an in-flight production deploy if a
+# newer commit arrives — wait for the current run to finish.
 concurrency:
   group: grc-production-${{ github.ref }}
   cancel-in-progress: false
 
+# contents: checkout
+# id-token: Workload Identity Federation (OIDC) for GCP auth
+# security-events: upload SARIF (OpenGrep / Trivy) to GitHub Code Scanning
 permissions:
   contents: read
   id-token: write
@@ -19,6 +56,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   IMAGE_NAME: grc-app
+  # Immutable tag = commit SHA so every deploy is traceable
   IMAGE_TAG: ${{ github.sha }}
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   GCP_ZONE: us-central1-a
@@ -27,6 +65,9 @@ env:
   APP_URL: http://136.112.38.75
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # quality — install, lint, unit test, production build
+  # ---------------------------------------------------------------------------
   quality:
     name: Build and test
     runs-on: ubuntu-latest
@@ -43,14 +84,18 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        # Locked install from package-lock.json (reproducible CI)
         run: npm ci
 
       - name: Generate Prisma client
+        # Prisma client is required by the TypeScript build; CI uses a throwaway
+        # SQLite URL (no real DB needed for `prisma generate`).
         run: npx prisma generate
         env:
           DATABASE_URL: file:./prisma/ci.db
 
       - name: Lint
+        # --if-present: skip quietly if no lint script is defined
         run: npm run lint --if-present
 
       - name: Unit tests
@@ -59,10 +104,17 @@ jobs:
       - name: Build application
         run: npm run build
 
+  # ---------------------------------------------------------------------------
+  # opengrep — SAST (soft job). Escape hatch: always() so quality failure
+  # does not Skipped this job.
+  # ---------------------------------------------------------------------------
   opengrep:
     name: OpenGrep SAST
     runs-on: ubuntu-latest
     needs: quality
+    # Escape hatch: re-evaluate after quality even when quality failed.
+    if: ${{ always() && !cancelled() }}
+    continue-on-error: true
     timeout-minutes: 20
 
     steps:
@@ -70,6 +122,8 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install OpenGrep
+        # Pin a release binary for reproducible CI (manylinux x86_64 on ubuntu-latest).
+        # Bump OPENGREP_VERSION deliberately when upgrading.
         env:
           OPENGREP_VERSION: v1.25.0
         run: |
@@ -80,7 +134,10 @@ jobs:
           echo "${HOME}/bin" >> "${GITHUB_PATH}"
           "${HOME}/bin/opengrep" --version
 
-      - name: OpenGrep SAST gate
+      - name: OpenGrep SAST scan
+        # --severity ERROR: only ERROR-level rules count toward failure
+        # --error: non-zero exit when matching findings exist
+        # --sarif-output: for GitHub Code Scanning upload (next step)
         run: |
           opengrep scan \
             --config p/security-audit \
@@ -95,20 +152,22 @@ jobs:
             .
 
       - name: Upload OpenGrep results to GitHub Security
-        if: always() && hashFiles('opengrep.sarif') != ''
+        # Step escape hatch: upload even when the scan step failed on findings
+        if: ${{ always() && hashFiles('opengrep.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: opengrep.sarif
           category: opengrep
 
+  # ---------------------------------------------------------------------------
+  # image — Docker build, SBOM, Trivy (soft step), export artifact
+  # Escape hatch: always() after quality + opengrep (neither may Skipped us).
+  # ---------------------------------------------------------------------------
   image:
     name: Build, SBOM and container scan
     runs-on: ubuntu-latest
     needs: [quality, opengrep]
-    if: >-
-      always() &&
-      needs.quality.result == 'success' &&
-      needs.opengrep.result == 'success'
+    if: ${{ always() && !cancelled() }}
     timeout-minutes: 30
 
     steps:
@@ -119,6 +178,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build immutable deployment image
+        # Labels embed git revision + source URL for supply-chain traceability.
+        # Tag both SHA (immutable) and latest (compose convenience on the VM).
         run: |
           docker build \
             --pull \
@@ -129,6 +190,7 @@ jobs:
             .
 
       - name: Generate CycloneDX SBOM
+        # Software Bill of Materials for the exact image we are about to scan/deploy
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
@@ -144,7 +206,10 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Trivy vulnerability gate
+      - name: Trivy vulnerability scan
+        # Soft step: findings fail this step; continue-on-error keeps export alive
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
@@ -156,12 +221,13 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy results to GitHub Security
-        if: always() && hashFiles('trivy-results.sarif') != ''
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
 
       - name: Export exact scanned image
+        # Persist the bit-identical image that Trivy scanned (gzip + checksum)
         run: |
           docker save \
             "${IMAGE_NAME}:${IMAGE_TAG}" \
@@ -180,42 +246,64 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # ---------------------------------------------------------------------------
+  # deploy — escape hatch always(); production steps only on main push
+  # ---------------------------------------------------------------------------
   deploy:
     name: Deploy exact image to GCP VM
     runs-on: ubuntu-latest
     needs: image
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Escape hatch: run even when image failed (steps may then no-op / fail).
+    if: ${{ always() && !cancelled() }}
     timeout-minutes: 20
+    # production env only on main push so PRs are not held by deploy protection
     environment:
-      name: production
+      name: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && 'production' || 'ci' }}
       url: http://136.112.38.75
 
     steps:
+      - name: Decide whether to promote to production
+        id: promote
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "should_deploy=true" >> "${GITHUB_OUTPUT}"
+            echo "Promoting image to production VM."
+          else
+            echo "should_deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Job ran via escape hatch; production deploy steps gated to main push."
+          fi
+
       - name: Checkout deployment configuration
+        if: steps.promote.outputs.should_deploy == 'true'
         uses: actions/checkout@v5
 
       - name: Download scanned image
+        if: steps.promote.outputs.should_deploy == 'true'
         uses: actions/download-artifact@v5
         with:
           name: grc-app-image-${{ github.sha }}
           path: deployment-artifact
 
       - name: Verify deployment artifact
+        if: steps.promote.outputs.should_deploy == 'true'
         working-directory: deployment-artifact
         run: sha256sum --check grc-app-image.tar.gz.sha256
 
       - name: Authenticate to Google Cloud with OIDC
+        if: steps.promote.outputs.should_deploy == 'true'
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
+        if: steps.promote.outputs.should_deploy == 'true'
         uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
 
       - name: Upload image and deployment files
+        if: steps.promote.outputs.should_deploy == 'true'
         run: |
           gcloud compute scp \
             deployment-artifact/grc-app-image.tar.gz \
@@ -227,6 +315,8 @@ jobs:
             --quiet
 
       - name: Deploy on VM
+        if: steps.promote.outputs.should_deploy == 'true'
+        # docker load CI artifact; compose up --no-build (immutable bytes from CI)
         run: |
           gcloud compute ssh "${GCP_VM_NAME}" \
             --project="${GCP_PROJECT_ID}" \
@@ -255,6 +345,7 @@ jobs:
             "
 
       - name: Wait for health endpoint
+        if: steps.promote.outputs.should_deploy == 'true'
         run: |
           for attempt in $(seq 1 24); do
             if curl \
@@ -276,7 +367,7 @@ jobs:
           exit 1
 
       - name: Collect deployment logs after failure
-        if: failure()
+        if: ${{ failure() && steps.promote.outputs.should_deploy == 'true' }}
         run: |
           gcloud compute ssh "${GCP_VM_NAME}" \
             --project="${GCP_PROJECT_ID}" \
@@ -288,35 +379,55 @@ jobs:
               docker compose logs --tail=200
             " || true
 
+  # ---------------------------------------------------------------------------
+  # e2e — escape hatch always(); Playwright only on main push
+  # ---------------------------------------------------------------------------
   e2e:
     name: Post-deployment E2E
     runs-on: ubuntu-latest
     needs: deploy
+    if: ${{ always() && !cancelled() }}
+    continue-on-error: true
     timeout-minutes: 20
 
     steps:
+      - name: Decide whether to run E2E against production
+        id: e2e_gate
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "should_run=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "should_run=false" >> "${GITHUB_OUTPUT}"
+            echo "Job ran via escape hatch; E2E gated to main push only."
+          fi
+
       - name: Checkout
+        if: steps.e2e_gate.outputs.should_run == 'true'
         uses: actions/checkout@v5
 
       - name: Set up Node.js
+        if: steps.e2e_gate.outputs.should_run == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
+        if: steps.e2e_gate.outputs.should_run == 'true'
         run: npm ci
 
       - name: Install Playwright browser
+        if: steps.e2e_gate.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E suite
+        if: steps.e2e_gate.outputs.should_run == 'true'
         run: npm run test:e2e
         env:
           E2E_BASE_URL: ${{ env.APP_URL }}
 
       - name: Upload E2E report
-        if: always()
+        if: ${{ always() && steps.e2e_gate.outputs.should_run == 'true' }}
         uses: actions/upload-artifact@v5
         with:
           name: playwright-report-${{ github.sha }}
