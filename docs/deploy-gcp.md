@@ -340,8 +340,8 @@ Workflow: [`.github/workflows/grc-ci-cd.yml`](../.github/workflows/grc-ci-cd.yml
 Pipeline on `main` / PRs:
 
 1. **quality** — `npm ci`, Prisma generate, build  
-2. **snyk** — SCA / SAST / IaC gates (skipped if `SNYK_TOKEN` is unset)  
-3. **image** — Docker build, CycloneDX SBOM, Trivy HIGH/CRITICAL gate, optional Snyk container scan, upload immutable image artifact  
+2. **opengrep** — OpenGrep SAST gate (ERROR severity; SARIF uploaded to GitHub Security)  
+3. **image** — Docker build, CycloneDX SBOM, Trivy HIGH/CRITICAL gate, upload immutable image artifact  
 4. **deploy** — only on push to `main`: OIDC → GCP, SCP image + compose files to VM, `docker load` + `docker compose up -d --no-build`, health check  
 5. **e2e** — Playwright smoke tests against `APP_URL`
 
@@ -356,7 +356,6 @@ Deploy target defaults: VM `grc-pilot`, zone `us-central1-a`, path `/opt/grc`, h
 | Variable | `GCP_PROJECT_ID` | GCP project id |
 | Secret | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/.../locations/global/workloadIdentityPools/.../providers/...` |
 | Secret | `GCP_SERVICE_ACCOUNT` | SA email used by Actions (Compute OS Login / SSH + instance access) |
-| Secret | `SNYK_TOKEN` | Optional; enables Snyk gates |
 | Environment | `production` | Protects deploy job; set URL to the app |
 
 OIDC (Workload Identity Federation) setup outline:

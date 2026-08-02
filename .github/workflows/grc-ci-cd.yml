@@ -21,7 +21,6 @@ env:
   IMAGE_NAME: grc-app
   IMAGE_TAG: ${{ github.sha }}
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
   GCP_ZONE: us-central1-a
   GCP_VM_NAME: grc-pilot
   DEPLOY_PATH: /opt/grc
@@ -60,59 +59,56 @@ jobs:
       - name: Build application
         run: npm run build
 
-  snyk:
-    name: Snyk SAST, SCA and IaC
+  opengrep:
+    name: OpenGrep SAST
     runs-on: ubuntu-latest
     needs: quality
-    if: ${{ secrets.SNYK_TOKEN != '' }}
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Install OpenGrep
+        env:
+          OPENGREP_VERSION: v1.25.0
+        run: |
+          mkdir -p "${HOME}/bin"
+          curl -fsSL -o "${HOME}/bin/opengrep" \
+            "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_manylinux_x86"
+          chmod +x "${HOME}/bin/opengrep"
+          echo "${HOME}/bin" >> "${GITHUB_PATH}"
+          "${HOME}/bin/opengrep" --version
+
+      - name: OpenGrep SAST gate
+        run: |
+          opengrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --severity ERROR \
+            --error \
+            --sarif-output=opengrep.sarif \
+            --exclude-dir=node_modules \
+            --exclude-dir=dist \
+            --exclude-dir=coverage \
+            --exclude-dir=.git \
+            .
+
+      - name: Upload OpenGrep results to GitHub Security
+        if: always() && hashFiles('opengrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Pin this to an approved Snyk CLI version in package.json/devDependencies
-      # for fully reproducible builds.
-      - name: Install Snyk CLI
-        run: npm install --global snyk
-
-      - name: Authenticate Snyk
-        run: snyk auth "${SNYK_TOKEN}"
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Snyk Open Source SCA gate
-        run: snyk test --all-projects --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Snyk Code SAST gate
-        run: snyk code test --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Snyk IaC gate
-        run: snyk iac test --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          sarif_file: opengrep.sarif
+          category: opengrep
 
   image:
     name: Build, SBOM and container scan
     runs-on: ubuntu-latest
-    needs: [quality, snyk]
+    needs: [quality, opengrep]
     if: >-
       always() &&
       needs.quality.result == 'success' &&
-      (needs.snyk.result == 'success' || needs.snyk.result == 'skipped')
+      needs.opengrep.result == 'success'
     timeout-minutes: 30
 
     steps:
@@ -164,16 +160,6 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
-
-      - name: Snyk container gate
-        if: ${{ secrets.SNYK_TOKEN != '' }}
-        run: |
-          npm install --global snyk
-          snyk container test "${IMAGE_NAME}:${IMAGE_TAG}" \
-            --file=Dockerfile \
-            --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Export exact scanned image
         run: |

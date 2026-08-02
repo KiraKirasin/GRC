@@ -113,7 +113,7 @@ cp .env.example .env
 ```
 
 Key variables: `DATABASE_URL`, `PORT`, `UPLOAD_DIR`, `JWT_SECRET`, `JWT_EXPIRES`, `SEED_USER_PASSWORD`.  
-CI/CD secrets (`GCP_*`, `SNYK_TOKEN`) belong in GitHub Actions, not in `.env`.
+CI/CD secrets (`GCP_*`) belong in GitHub Actions, not in `.env`.
 
 ## Import controls
 
@@ -164,7 +164,7 @@ See the full guide: [docs/deploy-gcp.md](docs/deploy-gcp.md)
 
 Recommended VM: **e2-small** on Compute Engine with Ubuntu 22.04, Docker Compose, and Caddy for HTTPS.
 
-CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) builds, scans (SBOM/Trivy/optional Snyk), and deploys an immutable image to the `grc-pilot` VM on pushes to `main`. Setup details are in [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred).
+CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) builds, scans (OpenGrep SAST, SBOM/Trivy), and deploys an immutable image to the `grc-pilot` VM on pushes to `main`. Setup details are in [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred).
 
 Older standalone workflows (`google.yml`, `sbom-trivy.yml`, `snyk-security.yml`) are removed; their coverage lives in `grc-ci-cd.yml`. CodeQL remains separate.
 
