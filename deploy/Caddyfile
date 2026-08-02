@@ -1,12 +1,23 @@
-# Replace grc.example.com with your domain (or use :443 with a public IP + TLS off until DNS is ready)
-{$GRC_DOMAIN:localhost} {
+# Pilot default: plain HTTP on :80 (APP_URL is http://PUBLIC_IP).
+# Caddy's automatic HTTPS redirects HTTP→HTTPS; TLS to a bare IP then fails
+# (Playwright EPROTO / ERR_SSL_PROTOCOL_ERROR). Keep auto_https off until a
+# real hostname is configured.
+#
+# Domain + TLS later:
+#   GRC_DOMAIN=grc.example.com
+#   CADDY_AUTO_HTTPS=on
+#   (and set APP_URL to https://grc.example.com)
+{
+	auto_https {$CADDY_AUTO_HTTPS:off}
+}
+
+{$GRC_DOMAIN::80} {
 	encode gzip
 
 	# API + SPA are served by the Node app on :3001
 	reverse_proxy app:3001
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
