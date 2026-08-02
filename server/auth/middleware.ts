@@ -47,7 +47,9 @@ function normalizeTokenCompanies(
 }
 
 export function authenticateUnlessPublic(req: Request, res: Response, next: NextFunction): void {
-  if (!req.path.startsWith('/api') || PUBLIC_PATHS.has(req.path)) {
+  // Prefer originalUrl so query strings / proxies don't break public-path matching
+  const pathname = (req.originalUrl || req.url || req.path).split('?')[0];
+  if (!pathname.startsWith('/api') || PUBLIC_PATHS.has(pathname) || PUBLIC_PATHS.has(req.path)) {
     next();
     return;
   }
