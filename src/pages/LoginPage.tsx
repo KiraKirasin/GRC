@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { USER_ROLES } from '../lib/permissions';
@@ -73,6 +73,11 @@ export default function LoginPage() {
           >
             {submitting ? t('auth.signingIn') : t('auth.signIn')}
           </button>
+          <p className="text-center text-sm">
+            <Link to="/forgot-password" className="text-brand-600 hover:underline">
+              {t('auth.forgotPassword')}
+            </Link>
+          </p>
         </form>
 
         <div className="mt-6 pt-6 border-t border-gray-200">

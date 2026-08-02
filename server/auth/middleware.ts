@@ -26,7 +26,12 @@ declare global {
   }
 }
 
-const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/login']);
+const PUBLIC_PATHS = new Set([
+  '/api/health',
+  '/api/auth/login',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+]);
 
 function normalizeTokenCompanies(
   role: string,

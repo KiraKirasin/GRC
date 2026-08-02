@@ -39,10 +39,6 @@ export default function Layout() {
         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
     }`;
 
-  const companyCount = user
-    ? Object.keys(user.companies || {}).length || (user.role === 'admin' ? 4 : 0)
-    : 0;
-
   return (
     <div className="min-h-screen flex bg-neutral-20">
       {/* Left sidebar */}
@@ -94,18 +90,23 @@ export default function Layout() {
         {/* User footer */}
         {user && (
           <div className="border-t border-gray-100 px-3 py-3 space-y-2">
-            <div className="flex items-center gap-2">
+            <NavLink
+              to="/profile"
+              className={({ isActive }) =>
+                `flex items-center gap-2 rounded-lg px-1 py-1 -mx-0.5 transition-colors ${
+                  isActive ? 'bg-brand-50' : 'hover:bg-gray-50'
+                }`
+              }
+            >
               <div className="w-8 h-8 rounded-full bg-brand-600/10 flex items-center justify-center text-brand-600 text-xs font-bold">
                 {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{user.name}</p>
                 <p className="text-[11px] text-gray-400 capitalize">{roleLabel(user.role)}</p>
-                <p className="text-[10px] text-gray-400 truncate">
-                  {companyCount} {t('auth.companiesLabel').toLowerCase()}
-                </p>
+                <p className="text-[10px] text-brand-600 truncate">{t('nav.profile')}</p>
               </div>
-            </div>
+            </NavLink>
             <div className="flex items-center gap-2">
               <LanguageSwitcher />
               <button
