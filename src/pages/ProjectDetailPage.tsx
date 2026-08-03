@@ -38,7 +38,7 @@ export default function ProjectDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
-  const { projects, updateProject, updateProjectTask, addProjectTask, addProjectFinding, updateProjectFinding } = useProjects();
+  const { projects, loading: projectsLoading, updateProject, updateProjectTask, addProjectTask, addProjectFinding, updateProjectFinding } = useProjects();
   const { controls, addTask, updateTask } = useCompliance();
   const canWriteControl = usePermission('project-controls:write');
   const canReviewControl = usePermission('project-controls:review');
@@ -153,11 +153,19 @@ export default function ProjectDetailPage() {
       .finally(() => setAddLibraryLoading(false));
   }, [showAddControl, addMode, addFwName, projectControls]);
 
+  if (projectsLoading) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-gray-400 text-lg">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
       <div className="text-center py-16">
-        <p className="text-gray-400 text-lg">Project not found</p>
-        <button onClick={() => navigate('/projects')} className="mt-4 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg">← Back</button>
+        <p className="text-gray-400 text-lg">{t('projects.notFound')}</p>
+        <button onClick={() => navigate('/projects')} className="mt-4 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg">← {t('projects.backToList')}</button>
       </div>
     );
   }
@@ -715,6 +723,13 @@ export default function ProjectDetailPage() {
             })}
           </div>
           <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${project.id}/report`)}
+              className="px-3 py-1.5 text-xs border border-brand-300 text-brand-700 rounded-lg hover:bg-brand-50"
+            >
+              📑 {t('reports.generate')}
+            </button>
             <button onClick={regressStage} disabled={!canRegress} className="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-30">← {t('projects.prevStage')}</button>
             <button onClick={advanceStage} disabled={!canAdvance} className="px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-30">{t('projects.nextStage')} →</button>
           </div>

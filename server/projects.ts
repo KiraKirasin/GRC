@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import multer from 'multer';
+import archiver from 'archiver';
 import { requirePermission } from './auth/middleware.js';
 import {
   PROJECT_FRAMEWORK_OPTIONS,
@@ -125,6 +126,32 @@ function serializeProjectControl(control: {
 
 function controlUploadDir(projectId: string, controlId: string) {
   return path.join(UPLOAD_ROOT, projectId, controlId);
+}
+
+/** Safe single path segment for ZIP entries (no path traversal). */
+function safeZipSegment(name: string, fallback = 'file'): string {
+  const cleaned = String(name || '')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\.+/, '')
+    .slice(0, 120);
+  return cleaned || fallback;
+}
+
+function uniqueZipName(used: Set<string>, originalName: string): string {
+  const base = safeZipSegment(originalName, 'attachment');
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  const ext = path.extname(base);
+  const stem = ext ? base.slice(0, -ext.length) : base;
+  let i = 2;
+  while (used.has(`${stem}-${i}${ext}`.toLowerCase())) i += 1;
+  const next = `${stem}-${i}${ext}`;
+  used.add(next.toLowerCase());
+  return next;
 }
 
 const upload = multer({
@@ -724,6 +751,220 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Failed to download attachment' });
+    }
+  });
+
+  // Audit evidence package: report manifest + all uploaded attachments as ZIP
+  app.get('/api/projects/:id/evidence-package', async (req, res) => {
+    try {
+      const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, project.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+
+      const controls = await prisma.projectControl.findMany({
+        where: { projectId: project.id },
+        orderBy: [{ category: 'asc' }, { controlCode: 'asc' }, { title: 'asc' }],
+      });
+
+      const generatedAt = new Date().toISOString();
+      const stamp = generatedAt.slice(0, 10);
+      const zipFileName = `evidence-package_${safeZipSegment(project.title, 'project')}_${stamp}.zip`;
+
+      const folderUsed = new Set<string>();
+      const controlEntries: Array<{
+        controlId: string;
+        controlCode: string;
+        title: string;
+        category: string;
+        status: string;
+        owner: string;
+        evidence: string[];
+        evidenceLinks: string[];
+        folder: string;
+        attachments: Array<{
+          id: string;
+          name: string;
+          zipPath: string | null;
+          size: number;
+          mimeType: string;
+          uploadedAt: string;
+          presentOnDisk: boolean;
+        }>;
+      }> = [];
+
+      let filesAdded = 0;
+      let missingFiles = 0;
+
+      type PendingFile = { absPath: string; zipPath: string };
+      const pendingFiles: PendingFile[] = [];
+
+      for (const raw of controls) {
+        const serialized = serializeProjectControl(raw);
+        const codeOrTitle = serialized.controlCode || serialized.title || serialized.id;
+        let folder = safeZipSegment(String(codeOrTitle), 'control');
+        if (folderUsed.has(folder.toLowerCase())) {
+          folder = uniqueZipName(folderUsed, folder);
+        } else {
+          folderUsed.add(folder.toLowerCase());
+        }
+
+        const nameUsed = new Set<string>();
+        const attachmentRows: (typeof controlEntries)[number]['attachments'] = [];
+
+        for (const att of serialized.attachments as ControlAttachmentMeta[]) {
+          const fileName = uniqueZipName(nameUsed, att.name || att.storedName || 'file');
+          const absPath = att.storedName
+            ? path.join(controlUploadDir(project.id, String(serialized.id)), att.storedName)
+            : '';
+          const presentOnDisk = Boolean(absPath && fs.existsSync(absPath));
+          const zipPath = presentOnDisk ? `evidence/${folder}/${fileName}` : null;
+          if (presentOnDisk && zipPath) {
+            pendingFiles.push({ absPath, zipPath });
+            filesAdded += 1;
+          } else {
+            missingFiles += 1;
+          }
+          attachmentRows.push({
+            id: att.id,
+            name: att.name,
+            zipPath,
+            size: att.size,
+            mimeType: att.mimeType,
+            uploadedAt: att.uploadedAt,
+            presentOnDisk,
+          });
+        }
+
+        controlEntries.push({
+          controlId: String(serialized.id),
+          controlCode: String(serialized.controlCode || ''),
+          title: String(serialized.title || ''),
+          category: String(serialized.category || ''),
+          status: String(serialized.status || ''),
+          owner: String(serialized.owner || ''),
+          evidence: serialized.evidence as string[],
+          evidenceLinks: serialized.evidenceLinks as string[],
+          folder: `evidence/${folder}`,
+          attachments: attachmentRows,
+        });
+      }
+
+      const manifest = {
+        generatedAt,
+        generator: 'NovaPay GRC evidence package',
+        project: {
+          id: project.id,
+          title: project.title,
+          company: project.company,
+          framework: project.framework,
+          status: project.status,
+          owner: project.owner,
+          description: project.description,
+          startDate: project.startDate,
+          targetDate: project.targetDate,
+        },
+        stats: {
+          controls: controlEntries.length,
+          attachmentsListed: controlEntries.reduce((n, c) => n + c.attachments.length, 0),
+          filesInZip: filesAdded,
+          missingFiles,
+          evidenceLabels: controlEntries.reduce((n, c) => n + c.evidence.length, 0),
+          evidenceLinks: controlEntries.reduce((n, c) => n + c.evidenceLinks.length, 0),
+        },
+        controls: controlEntries,
+      };
+
+      const reportLines = [
+        'NovaPay GRC — Project Evidence Package',
+        '='.repeat(48),
+        `Generated: ${generatedAt}`,
+        `Project:   ${project.title}`,
+        `Company:   ${project.company}`,
+        `Framework: ${project.framework}`,
+        `Status:    ${project.status}`,
+        `Owner:     ${project.owner}`,
+        '',
+        `Controls: ${manifest.stats.controls}`,
+        `Attachment files in ZIP: ${manifest.stats.filesInZip}`,
+        `Missing on disk: ${manifest.stats.missingFiles}`,
+        `Evidence labels: ${manifest.stats.evidenceLabels}`,
+        `Evidence links: ${manifest.stats.evidenceLinks}`,
+        '',
+        'Folder layout: evidence/<control-code>/<file>',
+        'Machine-readable index: MANIFEST.json',
+        '',
+      ];
+
+      for (const c of controlEntries) {
+        reportLines.push('-'.repeat(48));
+        reportLines.push(`${c.controlCode ? `${c.controlCode} — ` : ''}${c.title}`);
+        reportLines.push(`Status: ${c.status} | Owner: ${c.owner || '—'} | Category: ${c.category || '—'}`);
+        if (c.evidence.length) {
+          reportLines.push('Evidence labels:');
+          for (const e of c.evidence) reportLines.push(`  - ${e}`);
+        }
+        if (c.evidenceLinks.length) {
+          reportLines.push('Evidence links:');
+          for (const link of c.evidenceLinks) reportLines.push(`  - ${link}`);
+        }
+        if (c.attachments.length) {
+          reportLines.push('Attachments:');
+          for (const a of c.attachments) {
+            reportLines.push(
+              `  - ${a.name}${a.zipPath ? ` → ${a.zipPath}` : ' (MISSING ON DISK)'}`,
+            );
+          }
+        } else if (!c.evidence.length && !c.evidenceLinks.length) {
+          reportLines.push('No evidence recorded.');
+        }
+        reportLines.push('');
+      }
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${zipFileName.replace(/"/g, '')}"`,
+      );
+
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (err) => {
+        console.error(err);
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to build evidence package' });
+        else res.end();
+      });
+      archive.pipe(res);
+
+      archive.append(JSON.stringify(manifest, null, 2), { name: 'MANIFEST.json' });
+      archive.append(reportLines.join('\n'), { name: 'REPORT.txt' });
+
+      for (const file of pendingFiles) {
+        archive.file(file.absPath, { name: file.zipPath });
+      }
+
+      await archive.finalize();
+
+      try {
+        await auditFromRequest(prisma, req, {
+          category: 'data',
+          action: 'download',
+          entityType: 'project',
+          entityId: project.id,
+          entityLabel: project.title,
+          summary: `Downloaded evidence package for project "${project.title}" (${filesAdded} files)`,
+          metadata: {
+            filesInZip: filesAdded,
+            missingFiles,
+            controls: controlEntries.length,
+          },
+        });
+      } catch (auditError) {
+        console.error('Failed to audit evidence package download', auditError);
+      }
+    } catch (error) {
+      console.error(error);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to build evidence package' });
     }
   });
 

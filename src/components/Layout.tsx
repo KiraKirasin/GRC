@@ -8,6 +8,7 @@ import { APP_VERSION } from '../version';
 const NAV_ITEMS = [
   { to: '/', label: 'nav.dashboard', end: true, icon: '📊' },
   { to: '/projects', label: 'nav.projects', icon: '📁' },
+  { to: '/reports', label: 'nav.reports', icon: '📑' },
   { to: '/risks', label: 'nav.riskRegister', icon: '⚠️' },
   { to: '/tasks', label: 'nav.tasks', icon: '✅' },
   { to: '/controls', label: 'nav.controls', icon: '🛡️' },

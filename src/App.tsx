@@ -18,6 +18,8 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import CopilotPage from './pages/CopilotPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
+import ProjectReportPage from './pages/ProjectReportPage';
+import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import ProfilePage from './pages/ProfilePage';
@@ -60,6 +62,8 @@ export default function App() {
                 <Route path="/copilot" element={<CopilotPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
+                <Route path="/projects/:id/report" element={<ProjectReportPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
