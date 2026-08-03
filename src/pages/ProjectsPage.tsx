@@ -24,7 +24,7 @@ type LibraryControl = {
 export default function ProjectsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { projects, addProject, deleteProject } = useProjects();
+  const { projects, loading: projectsLoading, error: projectsError, addProject, deleteProject, refreshProjects } = useProjects();
   const { user } = useAuth();
   const canWrite = usePermission('projects:write');
   const canDelete = usePermission('projects:delete');
@@ -174,6 +174,19 @@ export default function ProjectsPage() {
           + {t('projects.createProject')}
         </button>
       </div>
+
+      {projectsError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-3">
+          <span>{projectsError}</span>
+          <button type="button" onClick={() => void refreshProjects()} className="underline shrink-0">
+            {t('common.retry')}
+          </button>
+        </div>
+      )}
+
+      {projectsLoading && (
+        <p className="text-sm text-gray-500 mb-4">{t('common.loading')}</p>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
