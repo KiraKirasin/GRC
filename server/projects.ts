@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import multer from 'multer';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { requirePermission } from './auth/middleware.js';
 import {
   PROJECT_FRAMEWORK_OPTIONS,
@@ -12,6 +12,11 @@ import {
   findFrameworkOption,
 } from './frameworks.js';
 import { auditFromRequest, computeChanges } from './audit.js';
+import rateLimit from 'express-rate-limit';
+import {
+  attachmentWriteLimiter,
+  evidencePackageLimiter,
+} from './rateLimit.js';
 import {
   accessHasPermission,
   roleForCompany,
@@ -600,7 +605,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.delete('/api/projects/:id/controls/:controlId', requirePermission('project-controls:write'), async (req, res) => {
+  app.delete('/api/projects/:id/controls/:controlId', requirePermission('project-controls:write'), attachmentWriteLimiter, async (req, res) => {
     try {
       const existing = await prisma.projectControl.findFirst({
         where: { id: req.params.controlId, projectId: req.params.id },
@@ -685,6 +690,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
   app.post(
     '/api/projects/:id/controls/:controlId/attachments',
     requirePermission('project-controls:attachments'),
+    attachmentWriteLimiter,
     upload.array('files', 10),
     async (req, res) => {
       try {
@@ -733,29 +739,40 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   );
 
-  app.get('/api/projects/:id/controls/:controlId/attachments/:attachmentId', async (req, res) => {
-    try {
-      const existing = await prisma.projectControl.findFirst({
-        where: { id: req.params.controlId, projectId: req.params.id },
-      });
-      if (!existing) return res.status(404).json({ error: 'Project control not found' });
+  // Inline rateLimit() so CodeQL js/missing-rate-limiting sees the guard on res.download.
+  app.get(
+    '/api/projects/:id/controls/:controlId/attachments/:attachmentId',
+    rateLimit({
+      windowMs: 60_000,
+      max: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Too many attachment downloads. Please try again later.' },
+    }),
+    async (req, res) => {
+      try {
+        const existing = await prisma.projectControl.findFirst({
+          where: { id: req.params.controlId, projectId: req.params.id },
+        });
+        if (!existing) return res.status(404).json({ error: 'Project control not found' });
 
-      const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
-      const att = attachments.find(a => a.id === req.params.attachmentId);
-      if (!att || !att.storedName) return res.status(404).json({ error: 'Attachment not found' });
+        const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
+        const att = attachments.find(a => a.id === req.params.attachmentId);
+        if (!att || !att.storedName) return res.status(404).json({ error: 'Attachment not found' });
 
-      const filePath = path.join(controlUploadDir(req.params.id, req.params.controlId), att.storedName);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
+        const filePath = path.join(controlUploadDir(req.params.id, req.params.controlId), att.storedName);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
 
-      res.download(filePath, att.name);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Failed to download attachment' });
-    }
-  });
+        res.download(filePath, att.name);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to download attachment' });
+      }
+    },
+  );
 
   // Audit evidence package: report manifest + all uploaded attachments as ZIP
-  app.get('/api/projects/:id/evidence-package', async (req, res) => {
+  app.get('/api/projects/:id/evidence-package', evidencePackageLimiter, async (req, res) => {
     try {
       const project = await prisma.project.findUnique({ where: { id: req.params.id } });
       if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -928,7 +945,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         `attachment; filename="${zipFileName.replace(/"/g, '')}"`,
       );
 
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
       archive.on('error', (err) => {
         console.error(err);
         if (!res.headersSent) res.status(500).json({ error: 'Failed to build evidence package' });
@@ -968,7 +985,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.delete('/api/projects/:id/controls/:controlId/attachments/:attachmentId', requirePermission('project-controls:attachments'), async (req, res) => {
+  app.delete('/api/projects/:id/controls/:controlId/attachments/:attachmentId', requirePermission('project-controls:attachments'), attachmentWriteLimiter, async (req, res) => {
     try {
       const existing = await prisma.projectControl.findFirst({
         where: { id: req.params.controlId, projectId: req.params.id },

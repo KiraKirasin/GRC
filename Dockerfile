@@ -25,13 +25,19 @@ ENV PORT=3001
 ENV DATABASE_URL="file:/data/grc.db"
 ENV UPLOAD_DIR=/data/uploads/projects
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install runtime deps and apply available security updates (Trivy ignore-unfixed).
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && apt-get install -y --no-install-recommends \
     openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data/uploads/projects
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Drop npm cache after install so Trivy/secret scans don't hit huge /root/.npm/_cacache blobs
+RUN npm ci --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /root/.npm /tmp/*
 
 COPY prisma ./prisma
 COPY prisma.config.ts ./
@@ -41,8 +47,10 @@ COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY tsconfig.json ./
 
-# Ensure Prisma client matches runtime platform
-RUN npx prisma generate
+# Ensure Prisma client matches runtime platform; purge npx/npm cache again
+RUN npx prisma generate \
+  && npm cache clean --force \
+  && rm -rf /root/.npm /tmp/*
 
 EXPOSE 3001
 

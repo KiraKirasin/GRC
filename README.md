@@ -17,7 +17,7 @@ Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 - **Policies & Documents** — policy and document management views
 - **Roadmap** — compliance roadmap planning
 - **Integrations** — integration configuration UI
-- **Copilot** — GRC assistant interface
+- **Copilot** — CISO Copilot (Azure OpenAI / Microsoft 365 Copilot agent package)
 
 ### Project controls
 

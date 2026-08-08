@@ -11,12 +11,15 @@ import { registerAuthRoutes } from './auth/routes.js';
 import { requirePermission } from './auth/middleware.js';
 import { registerAuditRoutes } from './audit-routes.js';
 import { auditFromRequest, computeChanges } from './audit.js';
+import { registerCopilotRoutes } from './copilot/routes.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 const app = express();
+// Needed so express-rate-limit keys by real client IP behind Caddy/proxy.
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 app.use(authenticateUnlessPublic);
@@ -179,6 +182,7 @@ app.delete('/api/controls/:id', requirePermission('controls:delete'), async (req
 
 registerProjectRoutes(app, prisma);
 registerPolicyRoutes(app, prisma);
+registerCopilotRoutes(app, prisma);
 
 // Production: serve built SPA from Vite `dist/`
 if (process.env.NODE_ENV === 'production') {

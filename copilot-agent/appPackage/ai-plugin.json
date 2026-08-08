@@ -1,0 +1,74 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/copilot/plugin/v2.2/schema.json",
+  "schema_version": "v2.2",
+  "name_for_human": "NovaPay GRC",
+  "description_for_human": "Query NovaPay GRC projects, controls, and the CISO Copilot chat API.",
+  "description_for_model": "Use these actions to read GRC projects and controls, check agent status, and ask the grounded CISO Copilot chat endpoint. Prefer chat for narrative answers; use list endpoints for structured inventories.",
+  "contact_email": "grc@novapay.ua",
+  "namespace": "NovaPayGrc",
+  "functions": [
+    {
+      "name": "getHealth",
+      "description": "Check whether the GRC API is healthy."
+    },
+    {
+      "name": "listProjects",
+      "description": "List GRC compliance projects the caller can access."
+    },
+    {
+      "name": "listControls",
+      "description": "List master GRC controls from the controls repository."
+    },
+    {
+      "name": "listProjectControls",
+      "description": "List controls for a specific project including status and evidence metadata.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project id from listProjects."
+          }
+        },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "copilotChat",
+      "description": "Ask the CISO Copilot a natural-language compliance question grounded in live GRC data.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "User question in Ukrainian or English."
+          }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "copilotStatus",
+      "description": "Return whether Azure OpenAI (Microsoft Copilot stack) is configured for the in-app agent."
+    }
+  ],
+  "runtimes": [
+    {
+      "type": "OpenApi",
+      "auth": {
+        "type": "None"
+      },
+      "spec": {
+        "url": "openapi.yaml"
+      },
+      "run_for_functions": [
+        "getHealth",
+        "listProjects",
+        "listControls",
+        "listProjectControls",
+        "copilotChat",
+        "copilotStatus"
+      ]
+    }
+  ]
+}

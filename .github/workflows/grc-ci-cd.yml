@@ -210,7 +210,8 @@ jobs:
           if-no-files-found: error
 
       - name: Trivy vulnerability scan
-        # Soft step: findings fail this step; continue-on-error keeps export alive
+        # Soft step: findings fail this step; continue-on-error keeps export alive.
+        # scanners:vuln only — skip secret scan of large layer blobs (npm cacache noise).
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
@@ -221,6 +222,8 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           vuln-type: os,library
+          scanners: vuln
+          limit-severities-for-sarif: true
           exit-code: "1"
 
       - name: Upload Trivy results to GitHub Security
@@ -296,6 +299,38 @@ jobs:
         working-directory: deployment-artifact
         run: sha256sum --check grc-app-image.tar.gz.sha256
 
+      # Fail before auth/gcloud with an actionable message when WIF secrets or
+      # the project id variable are missing (auth@v3 otherwise says only
+      # "must specify exactly one of workload_identity_provider or credentials_json").
+      - name: Validate GCP configuration
+        if: steps.promote.outputs.should_deploy == 'true'
+        env:
+          HAS_PROJECT_ID: ${{ vars.GCP_PROJECT_ID != '' }}
+          HAS_WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+          HAS_SA: ${{ secrets.GCP_SERVICE_ACCOUNT != '' }}
+        run: |
+          set -euo pipefail
+          ok=1
+          if [ "${HAS_PROJECT_ID}" != "true" ]; then
+            echo "::error::GCP_PROJECT_ID is empty. Add repository variable GCP_PROJECT_ID (Settings → Secrets and variables → Actions → Variables)."
+            ok=0
+          else
+            echo "GCP_PROJECT_ID is set (${GCP_PROJECT_ID})."
+          fi
+          if [ "${HAS_WIF}" != "true" ]; then
+            echo "::error::secrets.GCP_WORKLOAD_IDENTITY_PROVIDER is empty. Add the full provider resource name, e.g. projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER."
+            ok=0
+          fi
+          if [ "${HAS_SA}" != "true" ]; then
+            echo "::error::secrets.GCP_SERVICE_ACCOUNT is empty. Add the deployer service-account email, e.g. deploy-sa@PROJECT_ID.iam.gserviceaccount.com."
+            ok=0
+          fi
+          if [ "${ok}" -ne 1 ]; then
+            echo "Configure Workload Identity Federation secrets + GCP_PROJECT_ID, then re-run deploy."
+            exit 1
+          fi
+          echo "GCP auth inputs look present."
+
       - name: Authenticate to Google Cloud with OIDC
         if: steps.promote.outputs.should_deploy == 'true'
         uses: google-github-actions/auth@v3
@@ -307,7 +342,8 @@ jobs:
         if: steps.promote.outputs.should_deploy == 'true'
         uses: google-github-actions/setup-gcloud@v3
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          # Populated from repository variable vars.GCP_PROJECT_ID (see env above).
+          project_id: ${{ vars.GCP_PROJECT_ID }}
 
       - name: Upload image and deployment files
         if: steps.promote.outputs.should_deploy == 'true'

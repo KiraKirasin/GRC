@@ -541,10 +541,14 @@ export default {
   },
   copilot: {
     title: 'CISO Copilot',
-    description: 'AI-асистент з комплаєнсу',
+    description: 'AI-асистент з комплаєнсу на базі Microsoft Azure OpenAI / Copilot',
     placeholder: 'Задайте питання про комплаєнс...',
     send: 'Надіслати',
     clearChat: 'Очистити',
+    thinking: 'Думаю…',
+    error: 'Copilot не зміг відповісти. Перевірте API та спробуйте ще раз.',
+    providerAzure: 'Підключено до Azure OpenAI (стек Microsoft Copilot)',
+    providerLocal: 'Локальний режим на даних GRC — додайте AZURE_OPENAI_* для повної відповіді Copilot',
     suggestions: [
       'Які у нас найбільші прогалини в комплаєнсі?',
       'Як підготуватися до аудиту ISO 27001?',

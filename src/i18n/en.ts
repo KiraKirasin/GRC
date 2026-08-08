@@ -615,10 +615,14 @@ export default {
   },
   copilot: {
     title: 'CISO Copilot',
-    description: 'AI-powered compliance assistant',
+    description: 'AI compliance assistant powered by Microsoft Azure OpenAI / Copilot',
     placeholder: 'Ask a compliance question...',
     send: 'Send',
     clearChat: 'Clear Chat',
+    thinking: 'Thinking…',
+    error: 'Copilot could not answer. Check the API and try again.',
+    providerAzure: 'Connected to Azure OpenAI (Microsoft Copilot stack)',
+    providerLocal: 'Local GRC-grounded mode — add AZURE_OPENAI_* for full Copilot answers',
     suggestions: [
       'What are our biggest compliance gaps?',
       'How do we prepare for ISO 27001 audit?',
