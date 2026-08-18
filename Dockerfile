@@ -26,7 +26,7 @@ ENV DATABASE_URL="file:/data/grc.db"
 ENV UPLOAD_DIR=/data/uploads/projects
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates \
+    openssl ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data/uploads/projects
 
