@@ -22,8 +22,6 @@ services:
       placement:
         constraints:
           - node.hostname == pf-d-q-forpost
-      restart_policy:
-        condition: allways
     environment:
       <<: *common-variables
     labels:
