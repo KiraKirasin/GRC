@@ -21,6 +21,13 @@ import {
   accessHasPermission,
   roleForCompany,
 } from './auth/permissions.js';
+import { actsAsControlOwner, userOwnsControl } from './auth/ownership.js';
+import {
+  findApproverEmails,
+  notifyApprovalRequested,
+  notifyControlAssigned,
+  resolveUserEmail,
+} from './email/notifications.js';
 
 const UPLOAD_ROOT = path.resolve(
   process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'projects')
@@ -112,12 +119,29 @@ function normalizeMitigation(raw: unknown): {
   };
 }
 
+function normalizeAssetEvidence(raw: unknown): Record<string, { evidence: string[]; evidenceLinks: string[] }> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, { evidence: string[]; evidenceLinks: string[] }> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key) continue;
+    const o = val && typeof val === 'object' ? (val as Record<string, unknown>) : {};
+    out[key] = {
+      evidence: Array.isArray(o.evidence) ? o.evidence.map(String).filter(Boolean) : [],
+      evidenceLinks: Array.isArray(o.evidenceLinks) ? o.evidenceLinks.map(String).filter(Boolean) : [],
+    };
+  }
+  return out;
+}
+
 function serializeProjectControl(control: {
   evidence: string;
   evidenceLinks: string;
   attachments: string;
   accessList: string;
   mitigation?: string;
+  systemIds?: string;
+  assetIds?: string;
+  assetEvidence?: string;
 } & Record<string, unknown>) {
   return {
     ...control,
@@ -126,6 +150,9 @@ function serializeProjectControl(control: {
     attachments: normalizeAttachments(parseJsonArray(control.attachments)),
     accessList: parseJsonArray(control.accessList),
     mitigation: normalizeMitigation(parseJsonObject(control.mitigation || '{}')),
+    systemIds: parseJsonArray<string>(control.systemIds || '[]'),
+    assetIds: parseJsonArray<string>(control.assetIds || '[]'),
+    assetEvidence: normalizeAssetEvidence(parseJsonObject(control.assetEvidence || '{}')),
   };
 }
 
@@ -180,9 +207,13 @@ function serializeProject(project: {
   tasks: string;
   reviews: string;
   findings: string;
+  archived?: boolean | number;
+  archivedAt?: string;
 } & Record<string, unknown>, controlCount = 0) {
   return {
     ...project,
+    archived: Boolean(project.archived),
+    archivedAt: String(project.archivedAt || ''),
     team: parseJsonArray<string>(project.team),
     scope: parseJsonObject(project.scope, {
       businessUnits: [], systems: [], assets: [], frameworks: [], controls: [], policies: [], vendors: [],
@@ -192,6 +223,12 @@ function serializeProject(project: {
     findings: parseJsonArray(project.findings),
     controlCount,
   };
+}
+
+const CLOSED_STAGES = new Set(['closure', 'lessons_learned']);
+
+function isClosedStage(status: string): boolean {
+  return CLOSED_STAGES.has(status);
 }
 
 export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
@@ -395,11 +432,25 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Project not found' });
 
-      const data: Record<string, string | number> = {};
+      const data: Record<string, string | number | boolean> = {};
       for (const key of ['title', 'company', 'type', 'framework', 'status', 'description', 'owner', 'startDate', 'targetDate', 'completedAt'] as const) {
         if (body[key] !== undefined) data[key] = body[key];
       }
       if (body.progress !== undefined) data.progress = Number(body.progress);
+      if (body.archived !== undefined) {
+        const nextArchived = Boolean(body.archived);
+        if (nextArchived && !existing.archived && !isClosedStage(existing.status)) {
+          return res.status(400).json({
+            error: 'Only projects in Closure or Lessons Learned can be archived',
+          });
+        }
+        data.archived = nextArchived;
+        if (nextArchived && !existing.archived) {
+          data.archivedAt = new Date().toISOString();
+        }
+        if (!nextArchived) data.archivedAt = '';
+      }
+      if (body.archivedAt !== undefined) data.archivedAt = String(body.archivedAt);
       if (body.team !== undefined) data.team = JSON.stringify(body.team);
       if (body.scope !== undefined) data.scope = JSON.stringify(body.scope);
       if (body.tasks !== undefined) data.tasks = JSON.stringify(body.tasks);
@@ -431,10 +482,203 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
+  /** Create a pending review and email company approvers (+ optional reviewer). */
+  app.post(
+    '/api/projects/:id/approvals/request',
+    requirePermission('projects:write', 'project-controls:write', 'project-controls:review'),
+    async (req, res) => {
+      try {
+        const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+        if (roleForCompany(req.user?.companies || {}, project.company) === null) {
+          return res.status(403).json({ error: 'No access to this company' });
+        }
+
+        const stage = String(req.body?.stage || 'compliance').trim();
+        const allowedStages = new Set([
+          'security',
+          'compliance',
+          'internal_audit',
+          'ciso',
+          'management',
+        ]);
+        if (!allowedStages.has(stage)) {
+          return res.status(400).json({ error: 'Invalid approval stage' });
+        }
+
+        const comments = String(req.body?.comments || '').trim();
+        const reviewerHint = String(req.body?.reviewer || '').trim();
+
+        type ReviewRow = {
+          id: string;
+          stage: string;
+          status: string;
+          reviewer: string;
+          comments: string;
+          reviewedAt: string;
+        };
+        let reviews: ReviewRow[] = [];
+        try {
+          const parsed = JSON.parse(project.reviews || '[]');
+          reviews = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          reviews = [];
+        }
+
+        const now = new Date().toISOString();
+        const existingIdx = reviews.findIndex((r) => r.stage === stage);
+        const review: ReviewRow = {
+          id:
+            existingIdx >= 0
+              ? reviews[existingIdx].id
+              : crypto.randomBytes(8).toString('hex'),
+          stage,
+          status: 'pending',
+          reviewer: reviewerHint || req.user?.name || req.user?.email || '',
+          comments,
+          reviewedAt: now,
+        };
+        if (existingIdx >= 0) reviews[existingIdx] = review;
+        else reviews.push(review);
+
+        const updated = await prisma.project.update({
+          where: { id: project.id },
+          data: { reviews: JSON.stringify(reviews) },
+        });
+
+        const approverEmails = await findApproverEmails(prisma, project.company);
+        const extra: string[] = [];
+        if (reviewerHint) {
+          const resolved = await resolveUserEmail(prisma, reviewerHint);
+          if (resolved) extra.push(resolved.email);
+          else if (reviewerHint.includes('@')) extra.push(reviewerHint.toLowerCase());
+        }
+        const recipients = [...new Set([...approverEmails, ...extra])].filter(
+          (e) => e !== (req.user?.email || '').toLowerCase(),
+        );
+
+        void notifyApprovalRequested({
+          to: recipients.length ? recipients : approverEmails,
+          projectId: project.id,
+          projectTitle: project.title,
+          company: project.company,
+          stage,
+          comments,
+          requestedBy: req.user?.email || req.user?.name,
+          reviewerHint: reviewerHint || undefined,
+        }).catch((err) => console.error('[email] approval request failed', err));
+
+        await auditFromRequest(prisma, req, {
+          category: 'data',
+          action: 'approve',
+          severity: 'info',
+          entityType: 'project',
+          entityId: project.id,
+          entityLabel: project.title,
+          summary: `Requested ${stage} approval for "${project.title}"`,
+          metadata: { stage, recipients, comments },
+        });
+
+        const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+        res.status(201).json({
+          ...serializeProject(updated, count),
+          emailedTo: recipients.length ? recipients : approverEmails,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to request approval' });
+      }
+    },
+  );
+
+  app.post('/api/projects/:id/archive', requirePermission('projects:write', 'projects:delete'), async (req, res) => {
+    try {
+      const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, existing.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+      if (existing.archived) {
+        return res.status(400).json({ error: 'Project is already archived' });
+      }
+      if (!isClosedStage(existing.status)) {
+        return res.status(400).json({
+          error: 'Only projects in Closure or Lessons Learned can be archived',
+        });
+      }
+
+      const project = await prisma.project.update({
+        where: { id: existing.id },
+        data: { archived: true, archivedAt: new Date().toISOString() },
+      });
+      const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'update',
+        severity: 'info',
+        entityType: 'project',
+        entityId: project.id,
+        entityLabel: project.title,
+        summary: `Archived project "${project.title}"`,
+        changes: { archived: { from: false, to: true } },
+      });
+
+      res.json(serializeProject(project, count));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to archive project' });
+    }
+  });
+
+  app.post('/api/projects/:id/unarchive', requirePermission('projects:write', 'projects:delete'), async (req, res) => {
+    try {
+      const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, existing.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+      if (!existing.archived) {
+        return res.status(400).json({ error: 'Project is not archived' });
+      }
+
+      const project = await prisma.project.update({
+        where: { id: existing.id },
+        data: { archived: false, archivedAt: '' },
+      });
+      const count = await prisma.projectControl.count({ where: { projectId: project.id } });
+
+      await auditFromRequest(prisma, req, {
+        category: 'data',
+        action: 'update',
+        severity: 'info',
+        entityType: 'project',
+        entityId: project.id,
+        entityLabel: project.title,
+        summary: `Restored project "${project.title}" from archive`,
+        changes: { archived: { from: true, to: false } },
+      });
+
+      res.json(serializeProject(project, count));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to restore project' });
+    }
+  });
+
   app.delete('/api/projects/:id', requirePermission('projects:delete'), async (req, res) => {
     try {
       const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, existing.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+      // Closed stages must be archived, not deleted (unless already in archive — allow hard delete)
+      if (!existing.archived && isClosedStage(existing.status)) {
+        return res.status(400).json({
+          error: 'Closed projects cannot be deleted. Archive them instead.',
+        });
+      }
 
       await prisma.project.delete({ where: { id: req.params.id } });
 
@@ -462,10 +706,21 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
   app.get('/api/projects/:id/controls', async (req, res) => {
     try {
-      const controls = await prisma.projectControl.findMany({
+      const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, project.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+
+      let controls = await prisma.projectControl.findMany({
         where: { projectId: req.params.id },
         orderBy: [{ controlCode: 'asc' }, { title: 'asc' }],
       });
+
+      if (actsAsControlOwner(req.user)) {
+        controls = controls.filter((c) => userOwnsControl(req.user, c));
+      }
+
       res.json(controls.map(serializeProjectControl));
     } catch (error) {
       console.error(error);
@@ -475,6 +730,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
   app.post('/api/projects/:id/controls', requirePermission('project-controls:write'), async (req, res) => {
     try {
+      if (actsAsControlOwner(req.user)) {
+        return res.status(403).json({ error: 'Control owners cannot add controls to a project' });
+      }
       const project = await prisma.project.findUnique({ where: { id: req.params.id } });
       if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -538,6 +796,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
             controlCode: String(body.controlCode || '').trim(),
             title,
             description: String(body.description || ''),
+            organizationDescription: String(body.organizationDescription || ''),
             framework: fw,
             category: String(body.category || ''),
             status: String(body.status || 'pending'),
@@ -598,6 +857,22 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         },
       });
 
+      for (const c of createdControls) {
+        const owner = String(c.owner || '').trim();
+        if (!owner) continue;
+        const resolved = await resolveUserEmail(prisma, owner);
+        if (!resolved) continue;
+        void notifyControlAssigned({
+          toEmail: resolved.email,
+          toName: resolved.name,
+          controlCode: String(c.controlCode || ''),
+          controlTitle: String(c.title || ''),
+          projectId: project.id,
+          projectTitle: project.title,
+          assignedBy: req.user?.email || req.user?.name,
+        }).catch((err) => console.error('[email] control assign failed', err));
+      }
+
       res.status(201).json(createdControls.length === 1 ? createdControls[0] : createdControls);
     } catch (error) {
       console.error(error);
@@ -607,6 +882,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
 
   app.delete('/api/projects/:id/controls/:controlId', requirePermission('project-controls:write'), attachmentWriteLimiter, async (req, res) => {
     try {
+      if (actsAsControlOwner(req.user)) {
+        return res.status(403).json({ error: 'Control owners cannot delete controls' });
+      }
       const existing = await prisma.projectControl.findFirst({
         where: { id: req.params.controlId, projectId: req.params.id },
       });
@@ -648,8 +926,27 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       });
       if (!existing) return res.status(404).json({ error: 'Project control not found' });
 
+      const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (roleForCompany(req.user?.companies || {}, project.company) === null) {
+        return res.status(403).json({ error: 'No access to this company' });
+      }
+
+      if (actsAsControlOwner(req.user)) {
+        if (!userOwnsControl(req.user, existing)) {
+          return res.status(403).json({ error: 'You can only edit controls you own' });
+        }
+        // Control owners may not reassign ownership
+        if (body.owner !== undefined && String(body.owner) !== existing.owner) {
+          return res.status(403).json({ error: 'Control owners cannot reassign ownership' });
+        }
+        if (body.accessList !== undefined) {
+          return res.status(403).json({ error: 'Control owners cannot change access list' });
+        }
+      }
+
       const data: Record<string, string> = {};
-      for (const key of ['title', 'description', 'framework', 'category', 'status', 'owner', 'controlDesign', 'source', 'lastReviewed', 'controlCode'] as const) {
+      for (const key of ['title', 'description', 'organizationDescription', 'framework', 'category', 'status', 'owner', 'controlDesign', 'source', 'lastReviewed', 'controlCode'] as const) {
         if (body[key] !== undefined) data[key] = body[key];
       }
       if (body.evidence !== undefined) data.evidence = JSON.stringify(body.evidence);
@@ -657,13 +954,48 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       if (body.attachments !== undefined) data.attachments = JSON.stringify(body.attachments);
       if (body.accessList !== undefined) data.accessList = JSON.stringify(body.accessList);
       if (body.mitigation !== undefined) data.mitigation = JSON.stringify(normalizeMitigation(body.mitigation));
+      if (body.systemIds !== undefined) {
+        const ids = Array.isArray(body.systemIds)
+          ? body.systemIds.map((id: unknown) => String(id)).filter(Boolean)
+          : [];
+        // Keep only systems that belong to this project
+        const valid = await prisma.projectSystem.findMany({
+          where: { projectId: req.params.id, id: { in: ids } },
+          select: { id: true },
+        });
+        const validSet = new Set(valid.map((s) => s.id));
+        data.systemIds = JSON.stringify(ids.filter((id: string) => validSet.has(id)));
+      }
+      if (body.assetIds !== undefined || body.assetEvidence !== undefined) {
+        const ids = Array.isArray(body.assetIds)
+          ? body.assetIds.map((id: unknown) => String(id)).filter(Boolean)
+          : body.assetIds === undefined
+            ? parseJsonArray<string>(existing.assetIds || '[]')
+            : [];
+        const valid = await prisma.projectAsset.findMany({
+          where: { projectId: req.params.id, id: { in: ids } },
+          select: { id: true },
+        });
+        const validSet = new Set(valid.map((a) => a.id));
+        const nextIds = ids.filter((id: string) => validSet.has(id));
+        data.assetIds = JSON.stringify(nextIds);
+
+        const rawEv = body.assetEvidence !== undefined
+          ? normalizeAssetEvidence(body.assetEvidence)
+          : normalizeAssetEvidence(parseJsonObject(existing.assetEvidence || '{}'));
+        const filteredEv: Record<string, { evidence: string[]; evidenceLinks: string[] }> = {};
+        for (const id of nextIds) {
+          if (rawEv[id]) filteredEv[id] = rawEv[id];
+        }
+        data.assetEvidence = JSON.stringify(filteredEv);
+      }
 
       const updated = await prisma.projectControl.update({ where: { id: existing.id }, data });
 
       const fields = [
-        'title', 'description', 'framework', 'category', 'status', 'owner',
+        'title', 'description', 'organizationDescription', 'framework', 'category', 'status', 'owner',
         'controlDesign', 'source', 'lastReviewed', 'controlCode',
-        'evidence', 'evidenceLinks', 'attachments', 'accessList', 'mitigation',
+        'evidence', 'evidenceLinks', 'attachments', 'accessList', 'mitigation', 'systemIds', 'assetIds', 'assetEvidence',
       ];
       await auditFromRequest(prisma, req, {
         category: 'data',
@@ -679,6 +1011,25 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         ),
         metadata: { projectId: req.params.id },
       });
+
+      const ownerChanged =
+        body.owner !== undefined &&
+        String(body.owner || '').trim() !== String(existing.owner || '').trim() &&
+        String(body.owner || '').trim() !== '';
+      if (ownerChanged) {
+        const resolved = await resolveUserEmail(prisma, String(body.owner));
+        if (resolved) {
+          void notifyControlAssigned({
+            toEmail: resolved.email,
+            toName: resolved.name,
+            controlCode: updated.controlCode || '',
+            controlTitle: updated.title,
+            projectId: project.id,
+            projectTitle: project.title,
+            assignedBy: req.user?.email || req.user?.name,
+          }).catch((err) => console.error('[email] control assign failed', err));
+        }
+      }
 
       res.json(serializeProjectControl(updated));
     } catch (error) {
@@ -698,6 +1049,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
           where: { id: req.params.controlId, projectId: req.params.id },
         });
         if (!existing) return res.status(404).json({ error: 'Project control not found' });
+        if (actsAsControlOwner(req.user) && !userOwnsControl(req.user, existing)) {
+          return res.status(403).json({ error: 'You can only upload attachments to controls you own' });
+        }
 
         const files = (req.files as Express.Multer.File[]) || [];
         if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
@@ -755,6 +1109,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
           where: { id: req.params.controlId, projectId: req.params.id },
         });
         if (!existing) return res.status(404).json({ error: 'Project control not found' });
+        if (actsAsControlOwner(req.user) && !userOwnsControl(req.user, existing)) {
+          return res.status(403).json({ error: 'You can only download attachments for controls you own' });
+        }
 
         const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
         const att = attachments.find(a => a.id === req.params.attachmentId);
@@ -784,6 +1141,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         where: { projectId: project.id },
         orderBy: [{ category: 'asc' }, { controlCode: 'asc' }, { title: 'asc' }],
       });
+      const scopedControls = actsAsControlOwner(req.user)
+        ? controls.filter((c) => userOwnsControl(req.user, c))
+        : controls;
 
       const generatedAt = new Date().toISOString();
       const stamp = generatedAt.slice(0, 10);
@@ -817,7 +1177,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       type PendingFile = { absPath: string; zipPath: string };
       const pendingFiles: PendingFile[] = [];
 
-      for (const raw of controls) {
+      for (const raw of scopedControls) {
         const serialized = serializeProjectControl(raw);
         const codeOrTitle = serialized.controlCode || serialized.title || serialized.id;
         let folder = safeZipSegment(String(codeOrTitle), 'control');
@@ -991,6 +1351,9 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         where: { id: req.params.controlId, projectId: req.params.id },
       });
       if (!existing) return res.status(404).json({ error: 'Project control not found' });
+      if (actsAsControlOwner(req.user) && !userOwnsControl(req.user, existing)) {
+        return res.status(403).json({ error: 'You can only delete attachments on controls you own' });
+      }
 
       const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
       const att = attachments.find(a => a.id === req.params.attachmentId);

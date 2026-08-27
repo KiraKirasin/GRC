@@ -354,9 +354,12 @@ export default function UsersPage() {
                   value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                   required={!editing}
-                  minLength={editing && !form.password ? undefined : 6}
+                  minLength={editing && !form.password ? undefined : 8}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
+                {!editing && (
+                  <p className="text-xs text-gray-500 mt-1">{t('auth.createSuccessEmailHint')}</p>
+                )}
               </div>
 
               <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 space-y-3">

@@ -1,6 +1,19 @@
 /** Preferred project frameworks (Create Project dropdown order) */
 export const PROJECT_FRAMEWORK_OPTIONS = [
   {
+    name: 'NBM Regulation №29',
+    shortName: 'НБМ №29',
+    aliases: [
+      'NBM Regulation №29',
+      'NBM Decision №29',
+      'НБМ №29',
+      'NBM №29',
+      'NBM 29',
+      'Regulamentul NBM nr. 29',
+    ],
+    sourcePatterns: [/NBM\s*(Regulation|Decision)?\s*[№#]?\s*29\b/i, /НБМ\s*[№#]?\s*29\b/i],
+  },
+  {
     name: 'NBU Resolution №95',
     shortName: 'НБУ №95',
     aliases: ['NBU Resolution №95', 'НБУ №95', 'NBU №95', 'NBU 95'],

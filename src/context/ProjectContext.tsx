@@ -33,6 +33,8 @@ interface ProjectContextType {
   ) => Promise<Project | null>;
   updateProject: (id: string, d: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  archiveProject: (id: string) => Promise<void>;
+  unarchiveProject: (id: string) => Promise<void>;
   addProjectTask: (projectId: string, task: Omit<ProjectTask, 'id'>) => Promise<void>;
   updateProjectTask: (projectId: string, taskId: string, d: Partial<ProjectTask>) => Promise<void>;
   addProjectReview: (projectId: string, review: Omit<ProjectReview, 'id' | 'reviewedAt'>) => Promise<void>;
@@ -66,6 +68,8 @@ function normalizeProject(raw: Project): Project {
         }
       : { ...EMPTY_SCOPE },
     progress: Number(raw.progress) || 0,
+    archived: Boolean(raw.archived),
+    archivedAt: raw.archivedAt || '',
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date(raw.createdAt).toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date(raw.updatedAt).toISOString(),
   };
@@ -86,6 +90,8 @@ function buildPatchBody(d: Partial<Project>): Record<string, unknown> {
     'targetDate',
     'completedAt',
     'progress',
+    'archived',
+    'archivedAt',
   ] as const;
   for (const key of scalars) {
     if (d[key] !== undefined) body[key] = d[key];
@@ -216,6 +222,32 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const archiveProject = useCallback(
+    async (id: string) => {
+      const res = await apiFetch(`/api/projects/${id}/archive`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to archive project');
+      }
+      const updated = normalizeProject(await res.json());
+      setProjects(prev => prev.map(p => (p.id === id ? updated : p)));
+    },
+    [],
+  );
+
+  const unarchiveProject = useCallback(
+    async (id: string) => {
+      const res = await apiFetch(`/api/projects/${id}/unarchive`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to restore project');
+      }
+      const updated = normalizeProject(await res.json());
+      setProjects(prev => prev.map(p => (p.id === id ? updated : p)));
+    },
+    [],
+  );
+
   const withProject = useCallback(
     async (projectId: string, mutate: (p: Project) => Partial<Project>) => {
       const current = projects.find(p => p.id === projectId);
@@ -286,6 +318,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       addProject,
       updateProject,
       deleteProject,
+      archiveProject,
+      unarchiveProject,
       addProjectTask,
       updateProjectTask,
       addProjectReview,
@@ -301,6 +335,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       addProject,
       updateProject,
       deleteProject,
+      archiveProject,
+      unarchiveProject,
       addProjectTask,
       updateProjectTask,
       addProjectReview,

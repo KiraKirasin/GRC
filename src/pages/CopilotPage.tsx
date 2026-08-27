@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
+import { usePermission } from '../context/AuthContext';
 import { apiFetch } from '../lib/api';
 
 export default function CopilotPage() {
   const { t } = useTranslation();
+  const canUseCopilot = usePermission('copilot:use');
   const { chatMessages, addChatMessage, clearChat } = useCompliance();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -12,6 +15,7 @@ export default function CopilotPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!canUseCopilot) return;
     void apiFetch('/api/copilot/status')
       .then(async (res) => {
         if (!res.ok) return;
@@ -19,11 +23,15 @@ export default function CopilotPage() {
         setProvider(data.provider);
       })
       .catch(() => undefined);
-  }, []);
+  }, [canUseCopilot]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, sending]);
+
+  if (!canUseCopilot) {
+    return <Navigate to="/" replace />;
+  }
 
   const askCopilot = async (text: string) => {
     const message = text.trim();

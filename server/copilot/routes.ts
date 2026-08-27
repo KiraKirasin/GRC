@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { auditFromRequest } from '../audit.js';
+import { requirePermission } from '../auth/middleware.js';
 import {
   copilotProviderStatus,
   runCopilotAgent,
@@ -8,15 +9,16 @@ import {
 } from './agent.js';
 
 export function registerCopilotRoutes(app: Express, prisma: PrismaClient) {
-  app.get('/api/copilot/status', (_req, res) => {
+  app.get('/api/copilot/status', requirePermission('copilot:use'), (_req, res) => {
     res.json(copilotProviderStatus());
   });
 
   /**
    * CISO Copilot chat — powered by Azure OpenAI (Microsoft Copilot stack)
    * when configured; otherwise returns grounded local fallback from GRC DB.
+   * Admin-only.
    */
-  app.post('/api/copilot/chat', async (req, res) => {
+  app.post('/api/copilot/chat', requirePermission('copilot:use'), async (req, res) => {
     try {
       const message = String(req.body?.message || '').trim();
       if (!message) {

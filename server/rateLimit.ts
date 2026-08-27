@@ -23,3 +23,12 @@ export const attachmentWriteLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many attachment changes. Please try again later.' },
 });
+
+/** Login brute-force protection. */
+export const loginLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});

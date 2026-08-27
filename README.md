@@ -2,7 +2,7 @@
 
 Governance, Risk, and Compliance (GRC) pilot application for managing controls, projects, evidence, risks, and remediation tasks.
 
-Built for NovaPay with support for **Ukrainian** and **English** interfaces.
+Built for NovaPay with support for **Ukrainian**, **English**, and **Russian** interfaces.
 
 > Ukrainian version: [README.uk.md](README.uk.md)
 
@@ -10,7 +10,7 @@ Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 
 - **Dashboard** — compliance overview and key metrics
 - **Projects** — scoped compliance initiatives with project-specific controls
-- **Controls Repository** — master library of GRC controls (PCI DSS, enterprise frameworks)
+- **Controls Repository** — master library of GRC controls (PCI DSS, ISO 27001, NBU, NBM №29, enterprise frameworks)
 - **Controls & Evidence Database** — browse controls with evidence and design notes
 - **Task Management** — track remediation and mitigation actions
 - **Risk Register** — risk criteria matrix and risk items
@@ -18,6 +18,9 @@ Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 - **Roadmap** — compliance roadmap planning
 - **Integrations** — integration configuration UI
 - **Copilot** — CISO Copilot (Azure OpenAI / Microsoft 365 Copilot agent package)
+- **Email notifications** — SMTP alerts on new user, control assignment, and approval requests (logs to console when SMTP is unset)
+
+
 
 ### Project controls
 
@@ -27,17 +30,23 @@ Built for NovaPay with support for **Ukrainian** and **English** interfaces.
 - Attach files to each control (upload, download, delete)
 - **Mitigation actions** — when enabled, automatically create linked tasks in Task Management
 
+
+
 ## Tech stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite, Tailwind CSS, React Router |
-| Backend | Express 5, TypeScript |
-| Database | SQLite (libSQL) via Prisma |
-| Auth | JWT, bcrypt, RBAC + company-scoped access |
-| i18n | i18next |
-| File uploads | multer |
-| Production | Docker, Caddy (TLS reverse proxy) |
+
+| Layer        | Technology                                 |
+| ------------ | ------------------------------------------ |
+| Frontend     | React 19, Vite, Tailwind CSS, React Router |
+| Backend      | Express 5, TypeScript                      |
+| Database     | SQLite (libSQL) via Prisma                 |
+| Auth         | JWT, bcrypt, RBAC + company-scoped access  |
+| i18n         | i18next                                    |
+| File uploads | multer                                     |
+| Production   | Docker, Caddy (TLS reverse proxy)          |
+
+
+
 
 ## Architecture
 
@@ -63,15 +72,17 @@ flowchart TB
   Express --> Uploads
 ```
 
+
+
 **Request path:** HTTPS → Caddy → Express (`:3001`) → JWT auth middleware → Prisma → SQLite / file uploads.
 
 **Data model (API-backed):** `User` (role + company ACL), `GRCControl` (master controls repository), `Project`, `ProjectControl` (project-scoped copies with evidence). Some UI modules (e.g. parts of risks/tasks) still use client-side seed data.
 
-**Security:** Five roles (`admin`, `approver`, `implementer`, `reviewer`, `auditor`) with a permission matrix. Non-admin users are scoped to assigned companies; projects are filtered server-side by company access.
+**Security:** Five roles (`admin`, `approver`, `implementer`, `reviewer`, `auditor, control owner`) with a permission matrix. Non-admin users are scoped to assigned companies; projects are filtered server-side by company access.
 
 **Deployment:** Docker Compose runs two containers (`app` + `caddy`). Persistent data lives in the `grc-data` volume at `/data`. See [docs/deploy-gcp.md](docs/deploy-gcp.md).
 
-###  architecture 
+### architecture
 
 - System context diagram (Browser → Caddy → Express → Auth / Prisma → SQLite)
 - Technology stack table
@@ -79,10 +90,14 @@ flowchart TB
 - Domain model and RBAC + multi-company access notes
 - GCP deployment topology
 
+
+
 ## Prerequisites
 
 - **Node.js** 22+
 - **npm** 10+
+
+
 
 ## Local development
 
@@ -106,13 +121,13 @@ The Vite dev server proxies `/api` requests to the Express API.
 
 ### Environment variables
 
-Copy [`.env.example`](.env.example) to `.env` and set secrets locally (`.env` is gitignored):
+Copy `[.env.example](.env.example)` to `.env` and set secrets locally (`.env` is gitignored):
 
 ```bash
 cp .env.example .env
 ```
 
-Key variables: `DATABASE_URL`, `PORT`, `UPLOAD_DIR`, `JWT_SECRET`, `JWT_EXPIRES`, `SEED_USER_PASSWORD`.  
+Key variables: `DATABASE_URL`, `PORT`, `UPLOAD_DIR`, `JWT_SECRET`, `JWT_EXPIRES`, `SEED_USER_PASSWORD`, `APP_ORIGIN`, `SMTP_*` (optional email).  
 CI/CD secrets (`GCP_*`) belong in GitHub Actions, not in `.env`.
 
 ## Import controls
@@ -164,7 +179,7 @@ See the full guide: [docs/deploy-gcp.md](docs/deploy-gcp.md)
 
 Recommended VM: **e2-small** on Compute Engine with Ubuntu 22.04, Docker Compose, and Caddy for HTTPS.
 
-CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) builds, scans (OpenGrep SAST, SBOM/Trivy), and deploys an immutable image to the `grc-pilot` VM on pushes to `main`. Setup details are in [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred).
+CI/CD: `[.github/workflows/grc-ci-cd.yml](.github/workflows/grc-ci-cd.yml)` builds, scans (OpenGrep SAST, SBOM/Trivy), and deploys an immutable image to the `grc-pilot` VM on pushes to `main`. Setup details are in [docs/deploy-gcp.md](docs/deploy-gcp.md#github-actions-cicd-preferred).
 
 Older standalone workflows (`google.yml`, `sbom-trivy.yml`, `snyk-security.yml`) are removed; their coverage lives in `grc-ci-cd.yml`. CodeQL remains separate.
 
@@ -182,27 +197,38 @@ Older standalone workflows (`google.yml`, `sbom-trivy.yml`, `snyk-security.yml`)
 └── docker-compose.yml
 ```
 
+
+
 ## Scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start API + frontend in development |
-| `npm run build` | Type-check and build frontend |
-| `npm start` | Run production server |
-| `npm run test:e2e` | Playwright smoke tests (`E2E_BASE_URL`) |
-| `npm run seed` | Seed database with sample data |
-| `npm run import-controls` | Import enterprise controls from Excel |
-| `npm run import-pci` | Import PCI DSS controls |
+
+| Command                   | Description                             |
+| ------------------------- | --------------------------------------- |
+| `npm run dev`             | Start API + frontend in development     |
+| `npm run build`           | Type-check and build frontend           |
+| `npm start`               | Run production server                   |
+| `npm run test:e2e`        | Playwright E2E (`E2E_BASE_URL`, default `http://127.0.0.1:3100`) |
+| `npm run test:auth-security` | Auth/authz API security smoke checks |
+| `npm run seed`            | Seed database with sample data          |
+| `npm run import-controls` | Import enterprise controls from Excel   |
+| `npm run import-pci`      | Import PCI DSS controls                 |
+
+
+
 
 ## API
 
-| Endpoint | Description |
-|---|---|
-| `GET /api/health` | Health check |
-| `GET /api/controls` | List all controls |
-| `GET /api/projects` | List projects |
-| `GET /api/projects/:id/controls` | Project controls |
+
+| Endpoint                                                 | Description       |
+| -------------------------------------------------------- | ----------------- |
+| `GET /api/health`                                        | Health check      |
+| `GET /api/controls`                                      | List all controls |
+| `GET /api/projects`                                      | List projects     |
+| `GET /api/projects/:id/controls`                         | Project controls  |
 | `POST /api/projects/:id/controls/:controlId/attachments` | Upload attachment |
+
+
+
 
 ## License
 

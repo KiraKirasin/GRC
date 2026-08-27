@@ -12,14 +12,20 @@ import {
   accessHasPermission,
   roleHasPermission,
   PERMISSIONS,
+  USER_ROLES,
   type CompanyAccessMap,
   type Permission,
   type UserRole,
 } from './permissions.js';
 import { requirePermission } from './middleware.js';
 import { auditFromRequest, computeChanges, writeAuditLog, clientMeta } from '../audit.js';
+import { bumpTokenVersion, revokeTokenJti } from './tokens.js';
+import { loginLimiter } from '../rateLimit.js';
+import { notifyUserCreated } from '../email/notifications.js';
+import { sendMail, appOrigin, isEmailEnabled } from '../email/mailer.js';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const MIN_PASSWORD_LENGTH = 8;
 
 function hashResetToken(raw: string): string {
   return crypto.createHash('sha256').update(raw).digest('hex');
@@ -56,7 +62,7 @@ function serializeUser(user: {
 }
 
 export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const meta = clientMeta(req);
     try {
       const email = String(req.body.email || '').trim().toLowerCase();
@@ -115,12 +121,13 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         });
       }
 
-      const token = signToken({
+      const { token, expiresAt } = signToken({
         sub: user.id,
         email: user.email,
         name: user.name,
         role,
         companies,
+        tv: user.tokenVersion,
       });
 
       await writeAuditLog(prisma, {
@@ -136,12 +143,13 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         entityId: user.id,
         entityLabel: user.email,
         summary: `${user.name} signed in`,
-        metadata: { companies },
+        metadata: { companies, expiresAt: expiresAt.toISOString() },
         ...meta,
       });
 
       res.json({
         token,
+        expiresAt: expiresAt.toISOString(),
         user: serializeUser({ ...user, role, companies: serializeCompanyAccess(companies) }),
       });
     } catch (error) {
@@ -152,20 +160,52 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
 
   app.post('/api/auth/logout', async (req, res) => {
     try {
-      if (req.user) {
+      if (req.user?.jti) {
+        const expiresAt = req.user.exp
+          ? new Date(req.user.exp * 1000)
+          : new Date(Date.now() + 8 * 60 * 60 * 1000);
+        await revokeTokenJti(prisma, {
+          jti: req.user.jti,
+          userId: req.user.id,
+          expiresAt,
+        });
         await auditFromRequest(prisma, req, {
           category: 'security',
           action: 'logout',
           entityType: 'session',
           entityId: req.user.id,
           entityLabel: req.user.email,
-          summary: `${req.user.name} signed out`,
+          summary: `${req.user.name} signed out (token revoked)`,
+          metadata: { jti: req.user.jti },
         });
       }
       res.json({ ok: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Logout failed' });
+    }
+  });
+
+  /** Invalidate all sessions for the current user (password rotation / compromise response). */
+  app.post('/api/auth/logout-all', async (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    try {
+      await bumpTokenVersion(prisma, req.user.id);
+      await auditFromRequest(prisma, req, {
+        category: 'security',
+        action: 'logout',
+        severity: 'warning',
+        entityType: 'session',
+        entityId: req.user.id,
+        entityLabel: req.user.email,
+        summary: `${req.user.name} revoked all sessions`,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to revoke sessions' });
     }
   });
 
@@ -207,8 +247,8 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       if (!currentPassword || !newPassword) {
         return res.status(400).json({ error: 'Current and new password are required' });
       }
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       }
       if (currentPassword === newPassword) {
         return res.status(400).json({ error: 'New password must be different from current password' });
@@ -239,6 +279,7 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         where: { id: user.id },
         data: { passwordHash },
       });
+      await bumpTokenVersion(prisma, user.id);
 
       await auditFromRequest(prisma, req, {
         category: 'security',
@@ -247,10 +288,10 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         entityType: 'user',
         entityId: user.id,
         entityLabel: user.email,
-        summary: `Password changed for ${user.email}`,
+        summary: `Password changed for ${user.email} (all sessions revoked)`,
       });
 
-      res.json({ ok: true });
+      res.json({ ok: true, sessionsRevoked: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Failed to change password' });
@@ -301,9 +342,25 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         },
       });
 
-      const appOrigin = String(process.env.APP_ORIGIN || 'http://localhost:5200').replace(/\/$/, '');
-      const resetUrl = `${appOrigin}/reset-password?token=${rawToken}`;
-      console.info(`[auth] Password reset link for ${user.email}: ${resetUrl}`);
+      const appOriginUrl = appOrigin();
+      const resetUrl = `${appOriginUrl}/reset-password?token=${rawToken}`;
+
+      if (isEmailEnabled()) {
+        void sendMail({
+          to: user.email,
+          subject: 'Reset your NovaPay GRC password',
+          text: [
+            `Hello ${user.name},`,
+            '',
+            'We received a request to reset your password.',
+            `Open this link (valid 1 hour): ${resetUrl}`,
+            '',
+            'If you did not request this, you can ignore this email.',
+          ].join('\n'),
+        }).catch((err) => console.error('[email] reset failed', err));
+      } else {
+        console.info(`[auth] Password reset link for ${user.email}: ${resetUrl}`);
+      }
 
       await writeAuditLog(prisma, {
         category: 'security',
@@ -326,7 +383,8 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
 
       res.json({
         ...generic,
-        ...(expose ? { resetUrl, expiresAt: expiresAt.toISOString() } : {}),
+        ...(expose && !isEmailEnabled() ? { resetUrl, expiresAt: expiresAt.toISOString() } : {}),
+        ...(expose && isEmailEnabled() ? { emailed: true, expiresAt: expiresAt.toISOString() } : {}),
       });
     } catch (error) {
       console.error(error);
@@ -342,8 +400,8 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       if (!token || !newPassword) {
         return res.status(400).json({ error: 'Token and new password are required' });
       }
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       }
 
       const tokenHash = hashResetToken(token);
@@ -373,7 +431,7 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       await prisma.$transaction([
         prisma.user.update({
           where: { id: record.userId },
-          data: { passwordHash },
+          data: { passwordHash, tokenVersion: { increment: 1 } },
         }),
         prisma.passwordResetToken.update({
           where: { id: record.id },
@@ -381,6 +439,9 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         }),
         prisma.passwordResetToken.deleteMany({
           where: { userId: record.userId, usedAt: null, id: { not: record.id } },
+        }),
+        prisma.revokedToken.deleteMany({
+          where: { userId: record.userId },
         }),
       ]);
 
@@ -395,7 +456,7 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         entityType: 'user',
         entityId: record.user.id,
         entityLabel: record.user.email,
-        summary: `Password reset completed for ${record.user.email}`,
+        summary: `Password reset completed for ${record.user.email} (all sessions revoked)`,
         ...meta,
       });
 
@@ -425,8 +486,8 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       if (!email || !name || !password) {
         return res.status(400).json({ error: 'Email, name, and password are required' });
       }
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       }
 
       const companies = normalizeCompanyAccessInput(req.body.companies);
@@ -461,6 +522,14 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
           companies: { from: null, to: companies },
         },
       });
+
+      void notifyUserCreated({
+        toEmail: user.email,
+        toName: user.name,
+        role,
+        companies: companyNamesFromAccess(companies),
+        createdBy: req.user?.email,
+      }).catch((err) => console.error('[email] welcome failed', err));
 
       res.status(201).json(serializeUser(user));
     } catch (error) {
@@ -513,8 +582,8 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       let passwordChanged = false;
       if (body.password) {
         const password = String(body.password);
-        if (password.length < 6) {
-          return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        if (password.length < MIN_PASSWORD_LENGTH) {
+          return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
         }
         data.passwordHash = await bcrypt.hash(password, 10);
         passwordChanged = true;
@@ -524,6 +593,10 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
         where: { id: req.params.id },
         data,
       });
+
+      if (passwordChanged || body.active === false) {
+        await bumpTokenVersion(prisma, user.id);
+      }
 
       const afterAccess = parseCompanyAccess(user.companies, user.role);
       await auditFromRequest(prisma, req, {

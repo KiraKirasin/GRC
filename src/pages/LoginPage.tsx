@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { USER_ROLES } from '../lib/permissions';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -79,25 +78,6 @@ export default function LoginPage() {
             </Link>
           </p>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <p className="text-xs text-gray-500 mb-2">{t('auth.demoAccounts')}</p>
-          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-            {USER_ROLES.map(role => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => {
-                  setEmail(`${role}@novapay.ua`);
-                  setPassword('grc123');
-                }}
-                className="px-2 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-left capitalize"
-              >
-                {role}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

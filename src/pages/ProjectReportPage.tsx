@@ -11,6 +11,7 @@ import {
   compareControlCodes,
   compareDomainsByStandard,
 } from '../types';
+import { localeForLang, localizedControlText } from '../lib/localizedControl';
 
 const statusColors: Record<string, string> = {
   implemented: 'bg-emerald-100 text-emerald-700',
@@ -137,7 +138,7 @@ export default function ProjectReportPage() {
   }, [controls, t]);
 
   const generatedAt = useMemo(
-    () => new Date().toLocaleString(i18n.language === 'uk' ? 'uk-UA' : 'en-GB'),
+    () => new Date().toLocaleString(localeForLang(i18n.language)),
     [i18n.language],
   );
 
@@ -343,7 +344,7 @@ export default function ProjectReportPage() {
                             <div>
                               <p className="text-sm font-semibold text-gray-900">
                                 {c.controlCode ? `${c.controlCode} — ` : ''}
-                                {c.title}
+                                {localizedControlText(c.title, i18n.language)}
                               </p>
                               {c.owner && (
                                 <p className="text-xs text-gray-500 mt-0.5">
@@ -360,7 +361,16 @@ export default function ProjectReportPage() {
                             </span>
                           </div>
                           {c.description && (
-                            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{c.description}</p>
+                            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">
+                              <span className="font-medium text-gray-700">{t('projects.controlDescription')}: </span>
+                              {c.description}
+                            </p>
+                          )}
+                          {c.organizationDescription && (
+                            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">
+                              <span className="font-medium text-gray-700">{t('projects.organizationControlDescription')}: </span>
+                              {c.organizationDescription}
+                            </p>
                           )}
                           {sections.evidence && (
                             <div className="mt-3 pt-2 border-t border-gray-100 space-y-1.5">

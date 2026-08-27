@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
 import { FRAMEWORKS, frameworksFromControls } from '../types';
+import { localizedControlText } from '../lib/localizedControl';
 
 const statusColors: Record<string, string> = {
   implemented: 'bg-emerald-100 text-emerald-700', in_progress: 'bg-blue-100 text-blue-700',
@@ -9,13 +10,16 @@ const statusColors: Record<string, string> = {
 };
 
 export default function ControlsDatabasePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { controls } = useCompliance();
   const [search, setSearch] = useState('');
   const [filterFramework, setFilterFramework] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterEvidence, setFilterEvidence] = useState<'all' | 'has_evidence' | 'no_evidence'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const locTitle = (title: string) => localizedControlText(title, i18n.language);
+  const locDesc = (description: string) => localizedControlText(description, i18n.language);
 
   const frameworkOptions = useMemo(() => {
     const fromData = frameworksFromControls(controls);
@@ -25,6 +29,8 @@ export default function ControlsDatabasePage() {
   const filtered = controls.filter(c => {
     const q = search.toLowerCase();
     const mSearch = !search ||
+      locTitle(c.title).toLowerCase().includes(q) ||
+      locDesc(c.description).toLowerCase().includes(q) ||
       c.title.toLowerCase().includes(q) ||
       c.owner.toLowerCase().includes(q) ||
       c.source.toLowerCase().includes(q) ||
@@ -102,7 +108,7 @@ export default function ControlsDatabasePage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       {c.controlCode && <span className="font-mono text-xs text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded">{c.controlCode}</span>}
-                      <span className="font-medium text-gray-900 truncate">{c.title}</span>
+                      <span className="font-medium text-gray-900 truncate">{locTitle(c.title)}</span>
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[c.status]}`}>{t(`controls.statuses.${c.status}`)}</span>
                       {!hasEvidence && <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-600">{t('database.missingEvidence')}</span>}
                     </div>

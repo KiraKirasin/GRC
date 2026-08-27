@@ -340,10 +340,11 @@ Workflow: [`.github/workflows/grc-ci-cd.yml`](../.github/workflows/grc-ci-cd.yml
 Pipeline on `main` / PRs:
 
 1. **quality** — `npm ci`, Prisma generate, build  
-2. **opengrep** — OpenGrep SAST (escape hatch `always() && !cancelled()`; soft `continue-on-error`)  
-3. **image** — Docker build, CycloneDX SBOM, Trivy soft step, upload immutable image (escape hatch)  
-4. **deploy** — escape hatch always runs; production VM steps only on push to `main`  
-5. **e2e** — escape hatch always runs; Playwright against `APP_URL` only on push to `main`  
+2. **e2e-ci** — Playwright against a local production server (hard gate on every PR/push)  
+3. **opengrep** — OpenGrep SAST (escape hatch `always() && !cancelled()`; soft `continue-on-error`)  
+4. **image** — Docker build, CycloneDX SBOM, Trivy soft step, upload immutable image (escape hatch; needs quality + e2e-ci + opengrep)  
+5. **deploy** — escape hatch always runs; production VM steps only on push to `main`  
+6. **e2e-prod** — escape hatch always runs; Playwright against `APP_URL` only on push to `main`  
 
 Dependent jobs use the GitHub Actions escape hatch (`if: always() && !cancelled()`) so upstream failures do not transitively **Skip** later jobs.
 

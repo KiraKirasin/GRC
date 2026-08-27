@@ -25,6 +25,8 @@ const SEED_USERS = [
   { email: 'approver@novapay.ua', name: 'Approver User', role: 'approver' },
   { email: 'implementer@novapay.ua', name: 'Implementer User', role: 'implementer' },
   { email: 'reviewer@novapay.ua', name: 'Reviewer User', role: 'reviewer' },
+  { email: 'control_owner@novapay.ua', name: 'Control Owner', role: 'control_owner' },
+  { email: 'app_manager@novapay.ua', name: 'App Manager', role: 'app_manager' },
 ] as const;
 
 async function main() {

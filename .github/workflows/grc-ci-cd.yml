@@ -3,8 +3,9 @@
 # =============================================================================
 #
 # Flow (left → right):
-#   quality → opengrep ─┐
-#                       ├→ image → deploy → e2e
+#   quality → e2e-ci ─┐
+#   quality → opengrep ─┤
+#                       ├→ image → deploy → e2e-prod
 #                       ┘
 #
 # Escape hatch (never-skip dependents):
@@ -23,11 +24,12 @@
 #
 # Soft steps (not the escape hatch):
 #   Trivy uses step-level continue-on-error so SBOM/export still run after
-#   findings. OpenGrep / E2E use job-level continue-on-error so the workflow
-#   can stay green-ish while still showing red on those jobs.
+#   findings. OpenGrep / post-deploy E2E use job-level continue-on-error so the
+#   workflow can stay green-ish while still showing red on those jobs.
+#   Pre-deploy e2e-ci is a hard gate (must pass on PRs and main).
 #
-# Deploy/e2e jobs always start when their gate allows; production VM /
-# Playwright steps are gated by step-level checks to main push only.
+# Deploy/e2e-prod jobs always start when their gate allows; production VM /
+# Playwright-against-APP_URL steps are gated by step-level checks to main push.
 #
 # Triggers: PRs and pushes to main, plus manual workflow_dispatch.
 # =============================================================================
@@ -107,6 +109,99 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
+  # e2e-ci — Playwright against a local production server (PRs + main)
+  # Hard gate: must pass before image build proceeds.
+  # ---------------------------------------------------------------------------
+  e2e-ci:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: file:./prisma/e2e.db
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: file:./prisma/e2e.db
+
+      - name: Seed users for E2E login
+        run: npm run seed-users
+        env:
+          DATABASE_URL: file:./prisma/e2e.db
+          SEED_USER_PASSWORD: grc123
+
+      - name: Build application
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start API and run E2E suite
+        env:
+          DATABASE_URL: file:./prisma/e2e.db
+          NODE_ENV: production
+          PORT: "3100"
+          JWT_SECRET: ci-e2e-jwt-secret-not-for-production
+          JWT_EXPIRES: 1h
+          SEED_USER_PASSWORD: grc123
+          E2E_BASE_URL: http://127.0.0.1:3100
+          E2E_EMAIL: admin@novapay.ua
+          E2E_PASSWORD: grc123
+          APP_ORIGIN: http://127.0.0.1:3100
+        run: |
+          set -euo pipefail
+          npx tsx server/index.ts &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:3100/api/health" >/dev/null; then
+              echo "API ready"
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "API process exited early"
+              exit 1
+            fi
+            sleep 1
+            if [ "$i" -eq 60 ]; then
+              echo "Timed out waiting for API health"
+              exit 1
+            fi
+          done
+
+          npm run test:e2e
+
+      - name: Upload E2E report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report-ci-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
   # opengrep — SAST (soft job). Escape hatch: always() so quality failure
   # does not Skipped this job.
   # ---------------------------------------------------------------------------
@@ -164,16 +259,24 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # image — Docker build, SBOM, Trivy (soft step), export artifact
-  # Escape hatch: always() after quality + opengrep (neither may Skipped us).
+  # Escape hatch: always() after quality + e2e-ci + opengrep (neither may Skipped us).
   # ---------------------------------------------------------------------------
   image:
     name: Build, SBOM and container scan
     runs-on: ubuntu-latest
-    needs: [quality, opengrep]
+    needs: [quality, e2e-ci, opengrep]
     if: ${{ always() && !cancelled() }}
     timeout-minutes: 30
 
     steps:
+      - name: Require quality and E2E
+        # Hard gates: do not ship an image when build or Playwright failed.
+        # Job still *starts* via escape hatch so it is not Skipped.
+        if: ${{ needs.quality.result != 'success' || needs.e2e-ci.result != 'success' }}
+        run: |
+          echo "quality=${{ needs.quality.result }} e2e-ci=${{ needs.e2e-ci.result }}"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -423,9 +526,9 @@ jobs:
             " || true
 
   # ---------------------------------------------------------------------------
-  # e2e — escape hatch always(); Playwright only on main push
+  # e2e-prod — escape hatch always(); Playwright against APP_URL only on main push
   # ---------------------------------------------------------------------------
-  e2e:
+  e2e-prod:
     name: Post-deployment E2E
     runs-on: ubuntu-latest
     needs: deploy
@@ -444,7 +547,7 @@ jobs:
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
           else
             echo "should_run=false" >> "${GITHUB_OUTPUT}"
-            echo "Job ran via escape hatch; E2E gated to main push only."
+            echo "Job ran via escape hatch; production E2E gated to main push only."
           fi
 
       - name: Checkout
@@ -466,17 +569,19 @@ jobs:
         if: steps.e2e_gate.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
 
-      - name: Run E2E suite
+      - name: Run E2E suite against production
         if: steps.e2e_gate.outputs.should_run == 'true'
         run: npm run test:e2e
         env:
           E2E_BASE_URL: ${{ env.APP_URL }}
+          E2E_EMAIL: ${{ vars.E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
 
       - name: Upload E2E report
         if: ${{ always() && steps.e2e_gate.outputs.should_run == 'true' }}
         uses: actions/upload-artifact@v5
         with:
-          name: playwright-report-${{ github.sha }}
+          name: playwright-report-prod-${{ github.sha }}
           path: |
             playwright-report/
             test-results/

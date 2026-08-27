@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiFetch } from '../lib/api';
 import { usePermission } from '../context/AuthContext';
+import { localeForLang } from '../lib/localizedControl';
 
 interface AuditLogItem {
   id: string;
@@ -130,7 +131,7 @@ export default function AuditLogsPage() {
     );
   }
 
-  const locale = i18n.language === 'uk' ? 'uk-UA' : 'en-GB';
+  const locale = localeForLang(i18n.language);
 
   return (
     <div className="space-y-6">

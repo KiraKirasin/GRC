@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently npm:dev:api npm:dev:web",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:web": "vite",
     "dev:api": "tsx server/index.ts",
     "build": "tsc -b && vite build",
@@ -20,7 +20,10 @@
     "import-pci": "npx tsx prisma/import-pci-controls.ts",
     "import-nbu95": "npx tsx prisma/import-nbu95-controls.ts",
     "import-nbu187": "npx tsx prisma/import-nbu187-controls.ts",
-    "import-iso27001": "npx tsx prisma/import-iso27001-controls.ts"
+    "import-iso27001": "npx tsx prisma/import-iso27001-controls.ts",
+    "import-nbm29": "npx tsx prisma/import-nbm29-controls.ts",
+    "test:auth-security": "npx tsx scripts/auth-security-check.ts",
+    "backfill-is-codes": "npx tsx scripts/backfill-is-system-codes.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
@@ -34,8 +37,10 @@
     "express-rate-limit": "^8.6.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
+    "nodemailer": "^9.0.5",
     "prisma": "^7.8.0",
-    "tsx": "^4.23.0"
+    "tsx": "^4.23.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",
@@ -45,6 +50,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
@@ -58,7 +64,6 @@
     "react-router-dom": "^7.18.2",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.3",
-    "vite": "^6.3.5",
-    "xlsx": "^0.18.5"
+    "vite": "^6.3.5"
   }
 }
