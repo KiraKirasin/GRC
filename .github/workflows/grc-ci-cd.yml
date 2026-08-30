@@ -434,6 +434,38 @@ jobs:
           fi
           echo "GCP auth inputs look present."
 
+      - name: Verify GCP deploy configuration
+        if: steps.promote.outputs.should_deploy == 'true'
+        env:
+          # Presence checks only — never print secret values.
+          GCP_PROJECT_ID_VALUE: ${{ vars.GCP_PROJECT_ID }}
+          HAS_WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+          HAS_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT != '' }}
+        run: |
+          missing=0
+          if [ -z "${GCP_PROJECT_ID_VALUE}" ]; then
+            echo "::error::Repository variable GCP_PROJECT_ID is not set. Settings → Secrets and variables → Actions → Variables."
+            missing=1
+          else
+            echo "GCP_PROJECT_ID is set."
+          fi
+          if [ "${HAS_WIF_PROVIDER}" != "true" ]; then
+            echo "::error::Secret GCP_WORKLOAD_IDENTITY_PROVIDER is missing/empty (or not available to the 'production' environment). Settings → Secrets and variables → Actions → Secrets (or Environments → production → Secrets). Value looks like: projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER"
+            missing=1
+          else
+            echo "GCP_WORKLOAD_IDENTITY_PROVIDER is set."
+          fi
+          if [ "${HAS_SERVICE_ACCOUNT}" != "true" ]; then
+            echo "::error::Secret GCP_SERVICE_ACCOUNT is missing/empty (or not available to the 'production' environment). Expected the deploy service account email."
+            missing=1
+          else
+            echo "GCP_SERVICE_ACCOUNT is set."
+          fi
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::Cannot call google-github-actions/auth without WIF inputs. Configure the variable/secrets above, then re-run this workflow."
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud with OIDC
         if: steps.promote.outputs.should_deploy == 'true'
         uses: google-github-actions/auth@v3
