@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: NovaPay GRC API for Microsoft 365 Copilot
+  version: 1.0.0
+  description: >
+    Subset of the NovaPay GRC HTTP API exposed to Microsoft 365 Copilot.
+    Replace the server URL with your deployed GRC base URL before packaging.
+servers:
+  - url: https://grc.example.com
+    description: Production / pilot GRC (replace before upload)
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+  /api/projects:
+    get:
+      operationId: listProjects
+      summary: List projects
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+  /api/controls:
+    get:
+      operationId: listControls
+      summary: List control library
+      responses:
+        "200":
+          description: Controls
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+  /api/projects/{projectId}/controls:
+    get:
+      operationId: listProjectControls
+      summary: List project controls
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project controls
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+  /api/copilot/status:
+    get:
+      operationId: copilotStatus
+      summary: Copilot provider status
+      responses:
+        "200":
+          description: Provider info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: string
+                  configured:
+                    type: boolean
+  /api/copilot/chat:
+    post:
+      operationId: copilotChat
+      summary: Ask CISO Copilot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                      content:
+                        type: string
+      responses:
+        "200":
+          description: Agent reply
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                  provider:
+                    type: string
+                  microsoftCopilot:
+                    type: boolean

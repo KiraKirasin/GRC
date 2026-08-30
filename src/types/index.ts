@@ -463,12 +463,98 @@ export type ProjectStatus =
 
 export interface ProjectScope {
   businessUnits: string[];
+  /** @deprecated Prefer ProjectSystem via /api/projects/:id/systems */
   systems: string[];
+  /** @deprecated Prefer ProjectAsset via /api/projects/:id/assets */
   assets: string[];
   frameworks: string[];
   controls: string[];
   policies: string[];
   vendors: string[];
+}
+
+export type SystemCriticality = 'low' | 'medium' | 'high' | 'critical';
+
+/** Rich system inventory item in project scope */
+export interface ProjectSystem {
+  id: string;
+  projectId: string;
+  registrySystemId?: string;
+  name: string;
+  purpose: string;
+  owner: string;
+  serverLocation: string;
+  techSpecs: string;
+  os: string;
+  failover: string;
+  security: string;
+  criticality: string;
+  equipment: string;
+  info: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Rich asset inventory item in project scope */
+export interface ProjectAsset {
+  id: string;
+  projectId: string;
+  registrySystemId?: string;
+  name: string;
+  purpose: string;
+  supportOwner: string;
+  criticality: string;
+  vendor: string;
+  consumers: string;
+  info: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Per-asset evidence on a project control */
+export type ControlAssetEvidenceMap = Record<string, { evidence: string[]; evidenceLinks: string[] }>;
+
+/** IS Registry system type prefixes */
+export const IS_SYSTEM_TYPES = {
+  infr: 'Infrastructure / servers',
+  app: 'Application',
+  sec: 'Security',
+  net: 'Network',
+  db: 'Database',
+  data: 'Data platform',
+  mon: 'Monitoring',
+  int: 'Integration',
+} as const;
+
+export type IsSystemType = keyof typeof IS_SYSTEM_TYPES;
+
+export const IS_PLACEMENTS = ['cloud', 'datacenter', 'on_prem', 'hybrid'] as const;
+export type IsPlacement = (typeof IS_PLACEMENTS)[number];
+
+/** Company-wide Information Systems Registry entry */
+export interface InformationSystem {
+  id: string;
+  systemCode: string;
+  systemType: IsSystemType | string;
+  placement: IsPlacement | string;
+  company: string;
+  name: string;
+  purpose: string;
+  supportOwner: string;
+  appServers: string;
+  osContainer: string;
+  dbServers: string;
+  techSpecs: string;
+  datacenter: string;
+  failover: string;
+  security: string;
+  criticality: string;
+  equipment: string;
+  info: string;
+  vendor: string;
+  consumers: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProjectTask {
@@ -531,6 +617,8 @@ export interface Project {
   completedAt?: string;
   progress: number;
   controlCount?: number;
+  archived?: boolean;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -575,6 +663,7 @@ export interface ProjectControl {
   controlCode: string;
   title: string;
   description: string;
+  organizationDescription: string;
   framework: string;
   category: string;
   status: ControlStatus;
@@ -587,6 +676,12 @@ export interface ProjectControl {
   accessList: ControlAccess[];
   lastReviewed: string;
   mitigation: ControlMitigation;
+  /** ProjectSystem ids this control applies to (multi-select) */
+  systemIds: string[];
+  /** ProjectAsset ids this control applies to (multi-select) */
+  assetIds: string[];
+  /** Evidence per linked asset */
+  assetEvidence: ControlAssetEvidenceMap;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,9 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useProjects } from '../context/ProjectContext';
 import { useCompliance } from '../context/ComplianceContext';
-import { usePermission } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { actsAsControlOwner, canLinkRegistryToProject, userHasPermission } from '../lib/permissions';
 import { apiFetch } from '../lib/api';
-import { PROJECT_STATUSES, ProjectStatus, ProjectReview, ProjectControl, ControlStatus, ControlAttachment, ControlMitigation, EMPTY_MITIGATION, TaskStatus, TaskPriority, FRAMEWORKS, compareDomainsByStandard, compareControlCodes } from '../types';
+import { PROJECT_STATUSES, ProjectStatus, ProjectReview, ProjectControl, ControlStatus, ControlAttachment, ControlMitigation, EMPTY_MITIGATION, TaskStatus, TaskPriority, FRAMEWORKS, compareDomainsByStandard, compareControlCodes, type ProjectSystem, type ProjectAsset, type ControlAssetEvidenceMap } from '../types';
+import ProjectSystemsPanel from '../components/ProjectSystemsPanel';
+import ProjectAssetsPanel from '../components/ProjectAssetsPanel';
+import { localizedControlText } from '../lib/localizedControl';
 
 const controlStatusColors: Record<string, string> = {
   implemented: 'bg-emerald-100 text-emerald-700', in_progress: 'bg-blue-100 text-blue-700',
@@ -35,19 +39,34 @@ const findingStatusColors: Record<string, string> = {
 };
 
 export default function ProjectDetailPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
-  const { projects, updateProject, updateProjectTask, addProjectTask, addProjectFinding, updateProjectFinding } = useProjects();
+  const { projects, loading: projectsLoading, updateProject, updateProjectTask, addProjectTask, addProjectFinding, updateProjectFinding, refreshProjects, deleteProject, archiveProject, unarchiveProject } = useProjects();
   const { controls, addTask, updateTask } = useCompliance();
-  const canWriteControl = usePermission('project-controls:write');
-  const canReviewControl = usePermission('project-controls:review');
-  const canEditControl = canWriteControl || canReviewControl;
-  const canAttach = usePermission('project-controls:attachments');
+  const { user } = useAuth();
   const project = projects.find(p => p.id === id);
+  const projectCompany = project?.company;
+  const canWriteControl = userHasPermission(user, 'project-controls:write', projectCompany);
+  const canReviewControl = userHasPermission(user, 'project-controls:review', projectCompany);
+  const canEditControl = canWriteControl || canReviewControl;
+  const canAttach = userHasPermission(user, 'project-controls:attachments', projectCompany);
+  const canWriteProject = userHasPermission(user, 'projects:write', projectCompany);
+  const canDeleteProjectPerm = userHasPermission(user, 'projects:delete', projectCompany);
+  const canLinkSystemsFromRegistry = canLinkRegistryToProject(user, projectCompany);
+  const isControlOwnerOnly = actsAsControlOwner(user);
+  const canAddControl = canWriteControl && !isControlOwnerOnly;
+  const canManageSystems = canWriteProject || canWriteControl;
+  const canAddFromRegistry = canLinkSystemsFromRegistry;
+  const controlLabel = (c: { title?: string }) => localizedControlText(c.title, i18n.language);
+  const isClosedStage = (status: string) => status === 'closure' || status === 'lessons_learned';
+  const [projectActionError, setProjectActionError] = useState('');
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'tasks' | 'scope' | 'controls' | 'evidence' | 'findings' | 'reviews'>('controls');
   const [projectControls, setProjectControls] = useState<ProjectControl[]>([]);
+  const [projectSystems, setProjectSystems] = useState<ProjectSystem[]>([]);
+  const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
   const [controlsLoading, setControlsLoading] = useState(false);
   const [controlSearch, setControlSearch] = useState('');
   const [filterOwner, setFilterOwner] = useState('');
@@ -64,12 +83,15 @@ export default function ProjectDetailPage() {
   const [addLibraryLoading, setAddLibraryLoading] = useState(false);
   const [addSelectedIds, setAddSelectedIds] = useState<Set<string>>(new Set());
   const [addLibrarySearch, setAddLibrarySearch] = useState('');
-  const [addCustom, setAddCustom] = useState({ title: '', description: '', framework: '', category: '', controlCode: '', owner: '' });
+  const [addCustom, setAddCustom] = useState({ title: '', description: '', organizationDescription: '', framework: '', category: '', controlCode: '', owner: '' });
   const [addingControl, setAddingControl] = useState(false);
   const [addControlError, setAddControlError] = useState('');
   const [controlForm, setControlForm] = useState({
-    title: '', description: '', framework: '', category: '', owner: '', lastReviewed: '', status: 'pending' as ControlStatus,
+    title: '', description: '', organizationDescription: '', framework: '', category: '', owner: '', lastReviewed: '', status: 'pending' as ControlStatus,
     evidence: [] as string[], evidenceLinks: [] as string[],
+    systemIds: [] as string[],
+    assetIds: [] as string[],
+    assetEvidence: {} as ControlAssetEvidenceMap,
     mitigation: { ...EMPTY_MITIGATION } as ControlMitigation,
   });
   const [evidenceDbSearch, setEvidenceDbSearch] = useState('');
@@ -104,6 +126,8 @@ export default function ProjectDetailPage() {
   const [newReviewStage, setNewReviewStage] = useState<'security' | 'compliance' | 'internal_audit' | 'ciso' | 'management'>('security');
   const [newReviewReviewer, setNewReviewReviewer] = useState('');
   const [newReviewComments, setNewReviewComments] = useState('');
+  const [requestingApproval, setRequestingApproval] = useState(false);
+  const [approvalMsg, setApprovalMsg] = useState('');
 
   const loadProjectControls = () => {
     if (!id) return;
@@ -116,6 +140,18 @@ export default function ProjectDetailPage() {
   };
 
   useEffect(() => { loadProjectControls(); }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    apiFetch(`/api/projects/${id}/systems`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: ProjectSystem[]) => setProjectSystems(data))
+      .catch(() => setProjectSystems([]));
+    apiFetch(`/api/projects/${id}/assets`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: ProjectAsset[]) => setProjectAssets(data))
+      .catch(() => setProjectAssets([]));
+  }, [id]);
 
   useEffect(() => {
     if (!showAddControl) return;
@@ -153,18 +189,26 @@ export default function ProjectDetailPage() {
       .finally(() => setAddLibraryLoading(false));
   }, [showAddControl, addMode, addFwName, projectControls]);
 
+  if (projectsLoading) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-gray-400 text-lg">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
       <div className="text-center py-16">
-        <p className="text-gray-400 text-lg">Project not found</p>
-        <button onClick={() => navigate('/projects')} className="mt-4 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg">← Back</button>
+        <p className="text-gray-400 text-lg">{t('projects.notFound')}</p>
+        <button onClick={() => navigate('/projects')} className="mt-4 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg">← {t('projects.backToList')}</button>
       </div>
     );
   }
 
   const currentStageIndex = STAGE_ORDER.indexOf(project.status);
-  const canAdvance = currentStageIndex < STAGE_ORDER.length - 1;
-  const canRegress = currentStageIndex > 0;
+  const canAdvance = !project.archived && currentStageIndex < STAGE_ORDER.length - 1;
+  const canRegress = !project.archived && currentStageIndex > 0;
 
   const advanceStage = () => {
     if (canAdvance) {
@@ -261,7 +305,8 @@ export default function ProjectDetailPage() {
   }, [projectControls]);
 
   const controlHasEvidence = (c: ProjectControl) =>
-    c.evidence.length > 0 || c.evidenceLinks.length > 0 || c.attachments.length > 0;
+    c.evidence.length > 0 || c.evidenceLinks.length > 0 || c.attachments.length > 0 ||
+    Object.values(c.assetEvidence || {}).some((e) => e.evidence.length > 0 || e.evidenceLinks.length > 0);
 
   const filteredProjectControls = useMemo(() => {
     const q = controlSearch.toLowerCase();
@@ -437,6 +482,7 @@ export default function ProjectDetailPage() {
     setControlForm({
       title: c.title,
       description: c.description,
+      organizationDescription: c.organizationDescription || '',
       framework: c.framework,
       category: c.category,
       owner: c.owner,
@@ -444,6 +490,9 @@ export default function ProjectDetailPage() {
       status: c.status,
       evidence: c.evidence || [],
       evidenceLinks: c.evidenceLinks || [],
+      systemIds: c.systemIds || [],
+      assetIds: c.assetIds || [],
+      assetEvidence: c.assetEvidence || {},
       mitigation,
     });
   };
@@ -454,7 +503,7 @@ export default function ProjectDetailPage() {
     setAddSelectedIds(new Set());
     setAddLibrarySearch('');
     setAddCustom({
-      title: '', description: '', framework: project.framework || '', category: '', controlCode: '', owner: project.owner || '',
+      title: '', description: '', organizationDescription: '', framework: project.framework || '', category: '', controlCode: '', owner: project.owner || '',
     });
     setAddFwName(project.framework || '');
     setShowAddControl(true);
@@ -668,6 +717,11 @@ export default function ProjectDetailPage() {
                 <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${PROJECT_STATUSES.find(ps => ps.status === project.status)?.color || 'bg-gray-100 text-gray-700'}`}>
                   {t(`projects.statuses.${project.status}`)}
                 </span>
+                {project.archived && (
+                  <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                    {t('projects.archivedBadge')}
+                  </span>
+                )}
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{t(`projects.types.${project.type}`)}</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">{project.description}</p>
@@ -680,14 +734,59 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           </div>
-          <div className="text-right shrink-0">
-            <div className="flex items-center gap-2">
+          <div className="text-right shrink-0 space-y-2">
+            <div className="flex items-center gap-2 justify-end">
               <div className="w-24 h-2.5 bg-gray-200 rounded-full overflow-hidden">
                 <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.max(progress, project.progress)}%` }} />
               </div>
               <span className="text-sm font-semibold text-gray-700">{Math.max(progress, project.progress)}%</span>
             </div>
             <p className="text-xs text-gray-400 mt-1">{completedTasks}/{project.tasks.length} tasks</p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              {!project.archived && isClosedStage(project.status) && (canWriteProject || canDeleteProjectPerm) && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setProjectActionError('');
+                    try {
+                      await archiveProject(project.id);
+                      navigate('/projects');
+                    } catch (err) {
+                      setProjectActionError(err instanceof Error ? err.message : t('projects.archiveFailed'));
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50"
+                >
+                  {t('projects.archive')}
+                </button>
+              )}
+              {project.archived && (canWriteProject || canDeleteProjectPerm) && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setProjectActionError('');
+                    try {
+                      await unarchiveProject(project.id);
+                    } catch (err) {
+                      setProjectActionError(err instanceof Error ? err.message : t('projects.unarchiveFailed'));
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs border border-brand-300 text-brand-700 rounded-lg hover:bg-brand-50"
+                >
+                  {t('projects.unarchive')}
+                </button>
+              )}
+              {canDeleteProjectPerm && (!isClosedStage(project.status) || project.archived) && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteProject(true)}
+                  className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                >
+                  {t('common.delete')}
+                </button>
+              )}
+            </div>
+            {projectActionError && <p className="text-xs text-red-600 max-w-xs ml-auto">{projectActionError}</p>}
           </div>
         </div>
 
@@ -715,6 +814,13 @@ export default function ProjectDetailPage() {
             })}
           </div>
           <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${project.id}/report`)}
+              className="px-3 py-1.5 text-xs border border-brand-300 text-brand-700 rounded-lg hover:bg-brand-50"
+            >
+              📑 {t('reports.generate')}
+            </button>
             <button onClick={regressStage} disabled={!canRegress} className="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-30">← {t('projects.prevStage')}</button>
             <button onClick={advanceStage} disabled={!canAdvance} className="px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-30">{t('projects.nextStage')} →</button>
           </div>
@@ -747,7 +853,7 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-gray-500 mt-0.5">{t('projects.projectControlsNote')}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {canWriteControl && (
+              {canAddControl && (
                 <button
                   type="button"
                   onClick={openAddControl}
@@ -880,7 +986,7 @@ export default function ProjectDetailPage() {
                                 <td className="py-2 px-3 font-mono text-xs">{c.controlCode || '—'}</td>
                                 <td className="py-2 px-3 font-medium text-gray-900 max-w-xs">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="truncate">{c.title}</span>
+                                    <span className="truncate">{controlLabel(c)}</span>
                                     {c.mitigation?.enabled && (
                                       <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">MA</span>
                                     )}
@@ -928,7 +1034,7 @@ export default function ProjectDetailPage() {
                       <td className="py-2 px-3 font-mono text-xs">{c.controlCode || '—'}</td>
                       <td className="py-2 px-3 font-medium text-gray-900 max-w-xs">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="truncate">{c.title}</span>
+                          <span className="truncate">{controlLabel(c)}</span>
                           {c.mitigation?.enabled && (
                             <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">MA</span>
                           )}
@@ -1052,9 +1158,33 @@ export default function ProjectDetailPage() {
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-mono text-xs text-gray-500">{c.controlCode}</span>
-                                    <span className="font-medium text-gray-900 truncate">{c.title}</span>
+                                    <span className="font-medium text-gray-900 truncate">{controlLabel(c)}</span>
                                     {!hasEvidence && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-600">{t('database.missingEvidence')}</span>}
                                   </div>
+                                  {(c.systemIds?.length ?? 0) > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {c.systemIds.map((sid) => {
+                                        const sys = projectSystems.find((s) => s.id === sid);
+                                        return sys ? (
+                                          <span key={sid} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                                            {sys.name}
+                                          </span>
+                                        ) : null;
+                                      })}
+                                    </div>
+                                  )}
+                                  {(c.assetIds?.length ?? 0) > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {c.assetIds.map((aid) => {
+                                        const asset = projectAssets.find((a) => a.id === aid);
+                                        return asset ? (
+                                          <span key={aid} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-800">
+                                            📦 {asset.name}
+                                          </span>
+                                        ) : null;
+                                      })}
+                                    </div>
+                                  )}
                                   <p className="text-xs text-gray-400 mt-1">{c.owner || '—'}</p>
                                 </div>
                                 {canEditControl && (
@@ -1080,6 +1210,27 @@ export default function ProjectDetailPage() {
                                       <span key={att.id} className="inline-flex px-2 py-1 bg-amber-50 text-amber-800 rounded text-xs">📎 {att.name}</span>
                                     )
                                   ))}
+                                  {c.assetIds?.map((aid) => {
+                                    const asset = projectAssets.find((a) => a.id === aid);
+                                    const ev = c.assetEvidence?.[aid];
+                                    if (!asset || !ev) return null;
+                                    const hasAssetEv = ev.evidence.length > 0 || ev.evidenceLinks.length > 0;
+                                    if (!hasAssetEv) return null;
+                                    return (
+                                      <span key={`asset-ev-${aid}`} className="inline-flex flex-wrap gap-1 items-center">
+                                        {ev.evidence.map((f, i) => (
+                                          <span key={`ae-${aid}-${i}`} className="inline-flex px-2 py-1 bg-violet-50 text-violet-800 rounded text-xs">
+                                            📦 {asset.name}: 📄 {f}
+                                          </span>
+                                        ))}
+                                        {ev.evidenceLinks.map((url, i) => (
+                                          <a key={`al-${aid}-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex px-2 py-1 bg-violet-100 text-violet-800 rounded text-xs hover:bg-violet-200">
+                                            📦 {asset.name}: 🔗 {url.length > 30 ? url.slice(0, 30) + '...' : url}
+                                          </a>
+                                        ))}
+                                      </span>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -1104,9 +1255,33 @@ export default function ProjectDetailPage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-gray-500">{c.controlCode}</span>
-                        <span className="font-medium text-gray-900 truncate">{c.title}</span>
+                        <span className="font-medium text-gray-900 truncate">{controlLabel(c)}</span>
                         {!hasEvidence && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-600">{t('database.missingEvidence')}</span>}
                       </div>
+                      {(c.systemIds?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.systemIds.map((sid) => {
+                            const sys = projectSystems.find((s) => s.id === sid);
+                            return sys ? (
+                              <span key={sid} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                                {sys.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+                      {(c.assetIds?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.assetIds.map((aid) => {
+                            const asset = projectAssets.find((a) => a.id === aid);
+                            return asset ? (
+                              <span key={aid} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-800">
+                                📦 {asset.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
                       <p className="text-xs text-gray-400 mt-1">{c.framework} · {c.category} · {c.owner}</p>
                     </div>
                     {canEditControl && (
@@ -1138,6 +1313,27 @@ export default function ProjectDetailPage() {
                           <span key={att.id} className="inline-flex px-2 py-1 bg-amber-50 text-amber-800 rounded text-xs">📎 {att.name}</span>
                         )
                       ))}
+                      {c.assetIds?.map((aid) => {
+                        const asset = projectAssets.find((a) => a.id === aid);
+                        const ev = c.assetEvidence?.[aid];
+                        if (!asset || !ev) return null;
+                        const hasAssetEv = ev.evidence.length > 0 || ev.evidenceLinks.length > 0;
+                        if (!hasAssetEv) return null;
+                        return (
+                          <span key={`asset-ev-${aid}`} className="inline-flex flex-wrap gap-1 items-center">
+                            {ev.evidence.map((f, i) => (
+                              <span key={`ae-${aid}-${i}`} className="inline-flex px-2 py-1 bg-violet-50 text-violet-800 rounded text-xs">
+                                📦 {asset.name}: 📄 {f}
+                              </span>
+                            ))}
+                            {ev.evidenceLinks.map((url, i) => (
+                              <a key={`al-${aid}-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex px-2 py-1 bg-violet-100 text-violet-800 rounded text-xs hover:bg-violet-200">
+                                📦 {asset.name}: 🔗 {url.length > 30 ? url.slice(0, 30) + '...' : url}
+                              </a>
+                            ))}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1233,11 +1429,21 @@ export default function ProjectDetailPage() {
       {activeTab === 'scope' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
           <h3 className="font-semibold text-gray-900 mb-4">{t('projects.tabs.scope')}</h3>
+          <ProjectSystemsPanel
+            projectId={project.id}
+            canWrite={canManageSystems}
+            canLinkFromRegistry={canAddFromRegistry}
+            onSystemsChange={setProjectSystems}
+          />
+          <ProjectAssetsPanel
+            projectId={project.id}
+            canWrite={canManageSystems}
+            canLinkFromRegistry={canAddFromRegistry}
+            onAssetsChange={setProjectAssets}
+          />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {([
               { key: 'businessUnits', label: t('projects.scopeBusinessUnits'), icon: '🏢' },
-              { key: 'systems', label: t('projects.scopeSystems'), icon: '💻' },
-              { key: 'assets', label: t('projects.scopeAssets'), icon: '📦' },
               { key: 'frameworks', label: t('projects.scopeFrameworks'), icon: '📋' },
               { key: 'controls', label: t('projects.scopeControls'), icon: '🔒' },
               { key: 'policies', label: t('projects.scopePolicies'), icon: '📄' },
@@ -1301,7 +1507,7 @@ export default function ProjectDetailPage() {
                               onChange={() => handleToggleControl(c.title)}
                               className="rounded border-gray-300 shrink-0"
                             />
-                            <span className="truncate">{c.title}</span>
+                            <span className="truncate">{controlLabel(c)}</span>
                           </label>
                         ))}
                       </div>
@@ -1496,7 +1702,74 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
-          <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+            <div>
+              <p className="text-xs font-medium text-gray-700 mb-1">{t('projects.requestApproval')}</p>
+              <p className="text-xs text-gray-500 mb-2">{t('projects.requestApprovalHint')}</p>
+              <div className="flex flex-wrap gap-2 items-center">
+                <select
+                  value={newReviewStage}
+                  onChange={e => setNewReviewStage(e.target.value as any)}
+                  className="px-2 py-1.5 border border-gray-300 rounded text-xs"
+                >
+                  {(['security', 'compliance', 'internal_audit', 'ciso', 'management'] as const).map(stage => (
+                    <option key={stage} value={stage}>{stage}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={newReviewReviewer}
+                  onChange={e => setNewReviewReviewer(e.target.value)}
+                  placeholder={t('projects.reviewerOptional')}
+                  className="px-2 py-1.5 border border-gray-300 rounded text-xs min-w-[160px]"
+                />
+                <input
+                  type="text"
+                  value={newReviewComments}
+                  onChange={e => setNewReviewComments(e.target.value)}
+                  placeholder={t('projects.approvalComments')}
+                  className="px-2 py-1.5 border border-gray-300 rounded text-xs flex-1 min-w-[120px]"
+                />
+                <button
+                  type="button"
+                  disabled={requestingApproval}
+                  onClick={async () => {
+                    setRequestingApproval(true);
+                    setApprovalMsg('');
+                    try {
+                      const res = await apiFetch(`/api/projects/${project.id}/approvals/request`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          stage: newReviewStage,
+                          reviewer: newReviewReviewer.trim(),
+                          comments: newReviewComments.trim(),
+                        }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        setApprovalMsg(data.error || t('projects.requestApprovalFailed'));
+                        return;
+                      }
+                      await refreshProjects();
+                      const emails = Array.isArray(data.emailedTo) ? data.emailedTo.join(', ') : '—';
+                      setApprovalMsg(t('projects.requestApprovalSuccess', { emails: emails || '—' }));
+                      setNewReviewReviewer('');
+                      setNewReviewComments('');
+                    } catch {
+                      setApprovalMsg(t('projects.requestApprovalFailed'));
+                    } finally {
+                      setRequestingApproval(false);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {requestingApproval ? '…' : t('projects.requestApproval')}
+                </button>
+              </div>
+              {approvalMsg && <p className="text-xs text-gray-600 mt-2">{approvalMsg}</p>}
+            </div>
+
+            <div>
             <p className="text-xs font-medium text-gray-500 mb-2">{t('projects.addReview')}</p>
             <div className="flex flex-wrap gap-2 items-center">
               <select
@@ -1545,6 +1818,7 @@ export default function ProjectDetailPage() {
                 }}
                 className="px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700"
               >+ {t('common.add')}</button>
+            </div>
             </div>
           </div>
         </div>
@@ -1621,7 +1895,7 @@ export default function ProjectDetailPage() {
                         <span className="min-w-0">
                           <span className="block text-sm text-gray-900">
                             {c.controlCode ? <span className="font-mono text-xs text-gray-500 mr-1.5">{c.controlCode}</span> : null}
-                            {c.title}
+                            {controlLabel(c)}
                           </span>
                           {c.category && <span className="text-[11px] text-gray-400">{c.category}</span>}
                         </span>
@@ -1678,7 +1952,7 @@ export default function ProjectDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.description')}</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.controlDescription')}</label>
                   <textarea
                     value={addCustom.description}
                     onChange={e => setAddCustom({ ...addCustom, description: e.target.value })}
@@ -1687,13 +1961,25 @@ export default function ProjectDetailPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.organizationControlDescription')}</label>
+                  <textarea
+                    value={addCustom.organizationDescription}
+                    onChange={e => setAddCustom({ ...addCustom, organizationDescription: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    rows={3}
+                    placeholder={t('projects.organizationControlDescriptionHint')}
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.owner')}</label>
                   <input
                     type="text"
                     value={addCustom.owner}
                     onChange={e => setAddCustom({ ...addCustom, owner: e.target.value })}
+                    placeholder="email@novapay.ua"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   />
+                  <p className="text-xs text-gray-500 mt-1">{t('projects.ownerEmailHint')}</p>
                 </div>
               </div>
             )}
@@ -1715,21 +2001,25 @@ export default function ProjectDetailPage() {
       )}
 
       {editingControl && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl p-6 shadow-xl max-w-xl w-full mx-4 my-8">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full my-8 max-h-[calc(100vh-2rem)] flex flex-col">
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
               <h3 className="text-lg font-semibold text-gray-900">{t('controls.editControl')}</h3>
               <button onClick={() => setEditingControl(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
-            <p className="text-xs text-gray-500 mb-4">{t('projects.editProjectControlNote')}</p>
-            <form onSubmit={saveProjectControl} className="space-y-4">
+            <p className="text-xs text-gray-500 px-6 mb-2 shrink-0">{t('projects.editProjectControlNote')}</p>
+            <form onSubmit={saveProjectControl} className="space-y-4 px-6 pb-6 overflow-y-auto flex-1 min-h-0">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t('controls.title_')}</label>
                 <input type="text" value={controlForm.title} onChange={e => setControlForm({ ...controlForm, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.description')}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.controlDescription')}</label>
                 <textarea value={controlForm.description} onChange={e => setControlForm({ ...controlForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" rows={3} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.organizationControlDescription')}</label>
+                <textarea value={controlForm.organizationDescription} onChange={e => setControlForm({ ...controlForm, organizationDescription: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" rows={3} placeholder={t('projects.organizationControlDescriptionHint')} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -1744,7 +2034,17 @@ export default function ProjectDetailPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.owner')}</label>
-                  <input type="text" value={controlForm.owner} onChange={e => setControlForm({ ...controlForm, owner: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                  <input
+                    type="text"
+                    value={controlForm.owner}
+                    onChange={e => setControlForm({ ...controlForm, owner: e.target.value })}
+                    disabled={isControlOwnerOnly}
+                    placeholder="email@novapay.ua"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                  />
+                  {!isControlOwnerOnly && (
+                    <p className="text-xs text-gray-500 mt-1">{t('projects.ownerEmailHint')}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t('controls.lastReviewed')}</label>
@@ -1758,6 +2058,138 @@ export default function ProjectDetailPage() {
                     <option key={s} value={s}>{t(`controls.statuses.${s}`)}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.controlSystems')}</label>
+                <p className="text-xs text-gray-500 mb-1.5">{t('projects.controlSystemsHint')}</p>
+                {projectSystems.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">{t('projects.controlSystemsNone')}</p>
+                ) : (
+                  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                    {projectSystems.map((s) => {
+                      const checked = controlForm.systemIds.includes(s.id);
+                      return (
+                        <label key={s.id} className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 rounded border-gray-300"
+                            checked={checked}
+                            onChange={() => {
+                              setControlForm((prev) => ({
+                                ...prev,
+                                systemIds: checked
+                                  ? prev.systemIds.filter((sid) => sid !== s.id)
+                                  : [...prev.systemIds, s.id],
+                              }));
+                            }}
+                          />
+                          <span>
+                            <span className="font-medium text-gray-900">{s.name}</span>
+                            {s.registrySystemId ? (
+                              <span className="ml-1.5 text-[10px] font-medium px-1 py-0.5 rounded bg-brand-50 text-brand-700">
+                                {t('projects.fromRegistryBadge')}
+                              </span>
+                            ) : null}
+                            {s.purpose ? <span className="text-gray-500"> — {s.purpose}</span> : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('projects.controlAssets')}</label>
+                <p className="text-xs text-gray-500 mb-1.5">{t('projects.controlAssetsHint')}</p>
+                {projectAssets.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">{t('projects.controlAssetsNone')}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {projectAssets.map((a) => {
+                      const checked = controlForm.assetIds.includes(a.id);
+                      const assetEv = controlForm.assetEvidence[a.id] || { evidence: [], evidenceLinks: [] };
+                      return (
+                        <div key={a.id} className="border border-gray-200 rounded-lg p-2">
+                          <label className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 rounded border-gray-300"
+                              checked={checked}
+                              onChange={() => {
+                                setControlForm((prev) => {
+                                  const nextIds = checked
+                                    ? prev.assetIds.filter((id) => id !== a.id)
+                                    : [...prev.assetIds, a.id];
+                                  const nextEv = { ...prev.assetEvidence };
+                                  if (checked) delete nextEv[a.id];
+                                  else nextEv[a.id] = nextEv[a.id] || { evidence: [], evidenceLinks: [] };
+                                  return { ...prev, assetIds: nextIds, assetEvidence: nextEv };
+                                });
+                              }}
+                            />
+                            <span>
+                              <span className="font-medium text-gray-900">{a.name}</span>
+                              {a.registrySystemId ? (
+                                <span className="ml-1.5 text-[10px] font-medium px-1 py-0.5 rounded bg-brand-50 text-brand-700">
+                                  {t('projects.fromRegistryBadge')}
+                                </span>
+                              ) : null}
+                              {a.purpose ? <span className="text-gray-500"> — {a.purpose}</span> : null}
+                            </span>
+                          </label>
+                          {checked && (
+                            <div className="mt-2 ml-6 space-y-2">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  {t('projects.assetEvidenceFiles', { name: a.name })}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={assetEv.evidence.join(', ')}
+                                  onChange={(e) => {
+                                    const evidence = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                                    setControlForm((prev) => ({
+                                      ...prev,
+                                      assetEvidence: {
+                                        ...prev.assetEvidence,
+                                        [a.id]: { ...assetEv, evidence },
+                                      },
+                                    }));
+                                  }}
+                                  placeholder={t('projects.evidenceManualPlaceholder')}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  {t('projects.assetEvidenceLinks', { name: a.name })}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={assetEv.evidenceLinks.join(', ')}
+                                  onChange={(e) => {
+                                    const evidenceLinks = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                                    setControlForm((prev) => ({
+                                      ...prev,
+                                      assetEvidence: {
+                                        ...prev.assetEvidence,
+                                        [a.id]: { ...assetEv, evidenceLinks },
+                                      },
+                                    }));
+                                  }}
+                                  placeholder="https://..."
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
@@ -2058,6 +2490,39 @@ export default function ProjectDetailPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteProject && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4">
+            <p className="text-gray-900 font-medium mb-4">{t('projects.deleteConfirm')}</p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteProject(false)}
+                className="px-4 py-2 text-sm text-gray-600"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setProjectActionError('');
+                  try {
+                    await deleteProject(project.id);
+                    navigate('/projects');
+                  } catch (err) {
+                    setConfirmDeleteProject(false);
+                    setProjectActionError(err instanceof Error ? err.message : t('projects.deleteFailed'));
+                  }
+                }}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                {t('common.delete')}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -27,6 +27,7 @@ async function main() {
     const batch = ISO27001_CONTROLS.slice(i, i + batchSize).map(c => ({
       controlCode: c.controlCode,
       title: `${c.titleEn} | ${c.titleUk}`,
+      // RU UI uses UK Cyrillic as fallback via localizedControlText until titleRu is added
       description: `EN: ${c.descriptionEn}\n\nUK: ${c.descriptionUk}`,
       framework: FRAMEWORK,
       category: `${c.categoryEn} / ${c.categoryUk}`,

@@ -11,7 +11,7 @@ interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => void | Promise<void>;
   hasPermission: (permission: Permission) => boolean;
   canAccessCompany: (company: string) => boolean;
   refreshUser: () => Promise<void>;
@@ -65,8 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   }, []);
 
-  const logout = useCallback(() => {
-    void apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+  const logout = useCallback(async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      /* still clear local session */
+    }
     clearToken();
     setUser(null);
   }, []);

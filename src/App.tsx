@@ -18,11 +18,15 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import CopilotPage from './pages/CopilotPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
+import ProjectReportPage from './pages/ProjectReportPage';
+import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import ProfilePage from './pages/ProfilePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import SystemsRegistryPage from './pages/SystemsRegistryPage';
+import AdminImportPage from './pages/AdminImportPage';
 
 function AppProviders() {
   return (
@@ -54,13 +58,17 @@ export default function App() {
                 <Route path="/controls" element={<ControlsPage />} />
                 <Route path="/evidence-database" element={<ControlsDatabasePage />} />
                 <Route path="/policies" element={<PoliciesPage />} />
+                <Route path="/systems-registry" element={<SystemsRegistryPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
                 <Route path="/copilot" element={<CopilotPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
+                <Route path="/projects/:id/report" element={<ProjectReportPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/users" element={<UsersPage />} />
+                <Route path="/admin-import" element={<AdminImportPage />} />
                 <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>

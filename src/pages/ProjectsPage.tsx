@@ -24,14 +24,16 @@ type LibraryControl = {
 export default function ProjectsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { projects, addProject, deleteProject } = useProjects();
+  const { projects, loading: projectsLoading, error: projectsError, addProject, deleteProject, archiveProject, unarchiveProject, refreshProjects } = useProjects();
   const { user } = useAuth();
   const canWrite = usePermission('projects:write');
   const canDelete = usePermission('projects:delete');
+  const canArchive = canWrite || canDelete;
   const allowedCompanies = useMemo(
     () => COMPANIES.filter(c => userCanAccessCompany(user, c)),
     [user],
   );
+  const [listTab, setListTab] = useState<'active' | 'archive'>('active');
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -40,6 +42,13 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  const isClosedStage = (status: string) => status === 'closure' || status === 'lessons_learned';
+  const canDeleteProject = (p: { status: string; archived?: boolean }) =>
+    canDelete && !p.archived && !isClosedStage(p.status);
+  const canArchiveProject = (p: { status: string; archived?: boolean }) =>
+    canArchive && !p.archived && isClosedStage(p.status);
   const [frameworks, setFrameworks] = useState<FrameworkOption[]>([]);
   const [fwControls, setFwControls] = useState<LibraryControl[]>([]);
   const [fwControlsLoading, setFwControlsLoading] = useState(false);
@@ -88,12 +97,17 @@ export default function ProjectsPage() {
   }, [form.framework, showForm]);
 
   const filtered = projects.filter(p => {
+    const inTab = listTab === 'archive' ? Boolean(p.archived) : !p.archived;
+    if (!inTab) return false;
     const mSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.owner.toLowerCase().includes(search.toLowerCase());
     const mType = !filterType || p.type === filterType;
     const mStatus = !filterStatus || p.status === filterStatus;
     const mCompany = !filterCompany || p.company === filterCompany;
     return mSearch && mType && mStatus && mCompany;
   });
+
+  const activeCount = projects.filter(p => !p.archived).length;
+  const archiveCount = projects.filter(p => p.archived).length;
 
   const selectedFw = frameworks.find(f => f.name === form.framework);
 
@@ -175,24 +189,66 @@ export default function ProjectsPage() {
         </button>
       </div>
 
+      {projectsError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-3">
+          <span>{projectsError}</span>
+          <button type="button" onClick={() => void refreshProjects()} className="underline shrink-0">
+            {t('common.retry')}
+          </button>
+        </div>
+      )}
+
+      {projectsLoading && (
+        <p className="text-sm text-gray-500 mb-4">{t('common.loading')}</p>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-2xl font-bold text-gray-900">{projects.length}</p>
+          <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">{t('projects.totalProjects')}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-2xl font-bold text-amber-600">{projects.filter(p => p.status === 'execution').length}</p>
+          <p className="text-2xl font-bold text-amber-600">{projects.filter(p => !p.archived && p.status === 'execution').length}</p>
           <p className="text-xs text-gray-500 mt-0.5">{t('projects.inExecution')}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-2xl font-bold text-emerald-600">{projects.filter(p => p.status === 'closure' || p.status === 'lessons_learned').length}</p>
+          <p className="text-2xl font-bold text-emerald-600">{projects.filter(p => !p.archived && (p.status === 'closure' || p.status === 'lessons_learned')).length}</p>
           <p className="text-xs text-gray-500 mt-0.5">{t('projects.completed')}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-2xl font-bold text-blue-600">{projects.filter(p => p.status === 'created' || p.status === 'planning').length}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{t('projects.upcoming')}</p>
+          <p className="text-2xl font-bold text-slate-600">{archiveCount}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t('projects.archivedCount')}</p>
         </div>
       </div>
+
+      <div className="flex gap-1 mb-4 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setListTab('active')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            listTab === 'active'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          {t('projects.tabActive')} ({activeCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setListTab('archive')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            listTab === 'archive'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          {t('projects.tabArchive')} ({archiveCount})
+        </button>
+      </div>
+
+      {actionError && (
+        <p className="mb-3 text-sm text-red-600">{actionError}</p>
+      )}
 
       <div className="flex flex-wrap gap-3 mb-4">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={t('common.search')} className="px-3 py-2 border border-gray-300 rounded-lg text-sm flex-1 min-w-[200px]" />
@@ -247,13 +303,52 @@ export default function ProjectsPage() {
                 </div>
                 <p className="text-xs text-gray-400 mt-1">{p.tasks.length} tasks · {p.findings.length} findings</p>
               </div>
-              {canDelete && (
-              <button
-                onClick={e => { e.stopPropagation(); setDeleteConfirm(p.id); }}
-                className="text-red-400 hover:text-red-600 text-lg shrink-0"
-                title={t('common.delete')}
-              >&times;</button>
-              )}
+              <div className="shrink-0 flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                {canArchiveProject(p) && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setActionError('');
+                      try {
+                        await archiveProject(p.id);
+                      } catch (err) {
+                        setActionError(err instanceof Error ? err.message : t('projects.archiveFailed'));
+                      }
+                    }}
+                    className="px-2 py-1 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                    title={t('projects.archive')}
+                  >
+                    {t('projects.archive')}
+                  </button>
+                )}
+                {listTab === 'archive' && canArchive && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setActionError('');
+                      try {
+                        await unarchiveProject(p.id);
+                      } catch (err) {
+                        setActionError(err instanceof Error ? err.message : t('projects.unarchiveFailed'));
+                      }
+                    }}
+                    className="px-2 py-1 text-xs text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50"
+                    title={t('projects.unarchive')}
+                  >
+                    {t('projects.unarchive')}
+                  </button>
+                )}
+                {(canDeleteProject(p) || (listTab === 'archive' && canDelete)) && (
+                  <button
+                    type="button"
+                    onClick={() => { setActionError(''); setDeleteConfirm(p.id); }}
+                    className="text-red-400 hover:text-red-600 text-lg px-1"
+                    title={t('common.delete')}
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -265,7 +360,20 @@ export default function ProjectsPage() {
             <p className="text-gray-900 font-medium mb-4">{t('projects.deleteConfirm')}</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm text-gray-600">{t('common.cancel')}</button>
-              <button onClick={() => { deleteProject(deleteConfirm); setDeleteConfirm(null); }} className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">{t('common.delete')}</button>
+              <button
+                onClick={async () => {
+                  try {
+                    await deleteProject(deleteConfirm);
+                    setDeleteConfirm(null);
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : t('projects.deleteFailed'));
+                    setDeleteConfirm(null);
+                  }
+                }}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                {t('common.delete')}
+              </button>
             </div>
           </div>
         </div>

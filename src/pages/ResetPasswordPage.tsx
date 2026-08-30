@@ -27,7 +27,7 @@ export default function ResetPasswordPage() {
       setError(t('auth.resetTokenMissing'));
       return;
     }
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       setError(t('auth.passwordTooShort'));
       return;
     }
@@ -85,7 +85,7 @@ export default function ResetPasswordPage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
                 autoComplete="new-password"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
@@ -97,7 +97,7 @@ export default function ResetPasswordPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
                 autoComplete="new-password"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />

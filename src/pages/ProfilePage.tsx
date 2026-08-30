@@ -20,12 +20,14 @@ function capabilityCell(value: boolean | string, t: (k: string) => string) {
   if (value === 'most') return <span className="text-xs text-brand-700">{t('auth.cap.most')}</span>;
   if (value === 'createEdit') return <span className="text-xs text-brand-700">{t('auth.cap.createEdit')}</span>;
   if (value === 'review') return <span className="text-xs text-brand-700">{t('auth.cap.review')}</span>;
+  if (value === 'ownControls') return <span className="text-xs text-brand-700">{t('auth.cap.ownControls')}</span>;
+  if (value === 'ownControlsEdit') return <span className="text-xs text-brand-700">{t('auth.cap.ownControlsEdit')}</span>;
   return <span className="text-xs text-gray-500">{String(value)}</span>;
 }
 
 export default function ProfilePage() {
   const { t } = useTranslation();
-  const { user, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,7 +48,7 @@ export default function ProfilePage() {
     e.preventDefault();
     setError('');
     setSuccess('');
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       setError(t('auth.passwordTooShort'));
       return;
     }
@@ -69,7 +71,9 @@ export default function ProfilePage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      await refreshUser();
+      // Sessions invalidated server-side — force re-login
+      await logout();
+      return;
     } catch {
       setError(t('auth.passwordChangeFailed'));
     } finally {
@@ -186,7 +190,7 @@ export default function ProfilePage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
@@ -198,7 +202,7 @@ export default function ProfilePage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
