@@ -1,0 +1,56 @@
+---
+version: "3.5"
+x-common-variables: &common-variables
+  HTTP_PROXY: ${http_proxy}
+  HTTPS_PROXY: ${https_proxy}
+  NO_PROXY: ${no_proxy}
+  NODE_ENV: production
+  PORT: 3001
+  DATABASE_URL: file:/data/grc.db
+  UPLOAD_DIR: /data/uploads/projects
+
+
+services:
+  api:
+    image: ${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA}
+    deploy:
+      labels:
+        - "traefik.http.services.${STACK}-api.loadbalancer.server.port=3001"
+        - "traefik.http.routers.${STACK}-api.rule=Host(`grc.forpost.space`)"
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == pf-d-q-forpost
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://127.0.0.1:3001/api/health || exit 1']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    environment:
+      <<: *common-variables
+    labels:
+      space.forpost.cloud.logging.group: grc
+      space.forpost.cloud.logging.format: json
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        labels: space.forpost.cloud.logging.group,space.forpost.cloud.logging.format,com.docker.swarm.service.name
+    volumes:
+      - data:/data
+    networks:
+      - network_ref
+
+networks:
+  network_ref:
+    external: true
+    name: infrastructure
+
+volumes:
+  data:
+    name: ${STACK}-data
+  
+
+
