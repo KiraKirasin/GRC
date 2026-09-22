@@ -6,7 +6,7 @@ import { useCompliance } from '../context/ComplianceContext';
 import { useAuth } from '../context/AuthContext';
 import { actsAsControlOwner, canLinkRegistryToProject, userHasPermission } from '../lib/permissions';
 import { apiFetch } from '../lib/api';
-import { PROJECT_STATUSES, ProjectStatus, ProjectReview, ProjectControl, ControlStatus, ControlAttachment, ControlMitigation, EMPTY_MITIGATION, TaskStatus, TaskPriority, FRAMEWORKS, compareDomainsByStandard, compareControlCodes, type ProjectSystem, type ProjectAsset, type ControlAssetEvidenceMap } from '../types';
+import { PROJECT_STATUSES, ProjectStatus, ProjectReview, ProjectControl, ControlStatus, ControlAttachment, ControlMitigation, EMPTY_MITIGATION, TaskStatus, TaskPriority, FRAMEWORKS, compareDomainsByStandard, compareControlCodes, type ProjectSystem, type ProjectAsset, type ControlAssetEvidenceMap, type ControlSystemEvidenceMap } from '../types';
 import ProjectSystemsPanel from '../components/ProjectSystemsPanel';
 import ProjectAssetsPanel from '../components/ProjectAssetsPanel';
 import { localizedControlText } from '../lib/localizedControl';
@@ -90,6 +90,7 @@ export default function ProjectDetailPage() {
     title: '', description: '', organizationDescription: '', framework: '', category: '', owner: '', lastReviewed: '', status: 'pending' as ControlStatus,
     evidence: [] as string[], evidenceLinks: [] as string[],
     systemIds: [] as string[],
+    systemEvidence: {} as ControlSystemEvidenceMap,
     assetIds: [] as string[],
     assetEvidence: {} as ControlAssetEvidenceMap,
     mitigation: { ...EMPTY_MITIGATION } as ControlMitigation,
@@ -306,7 +307,8 @@ export default function ProjectDetailPage() {
 
   const controlHasEvidence = (c: ProjectControl) =>
     c.evidence.length > 0 || c.evidenceLinks.length > 0 || c.attachments.length > 0 ||
-    Object.values(c.assetEvidence || {}).some((e) => e.evidence.length > 0 || e.evidenceLinks.length > 0);
+    Object.values(c.assetEvidence || {}).some((e) => e.evidence.length > 0 || e.evidenceLinks.length > 0) ||
+    Object.values(c.systemEvidence || {}).some((e) => e.evidence.length > 0 || e.evidenceLinks.length > 0);
 
   const filteredProjectControls = useMemo(() => {
     const q = controlSearch.toLowerCase();
@@ -491,6 +493,7 @@ export default function ProjectDetailPage() {
       evidence: c.evidence || [],
       evidenceLinks: c.evidenceLinks || [],
       systemIds: c.systemIds || [],
+      systemEvidence: c.systemEvidence || {},
       assetIds: c.assetIds || [],
       assetEvidence: c.assetEvidence || {},
       mitigation,
@@ -1210,6 +1213,23 @@ export default function ProjectDetailPage() {
                                       <span key={att.id} className="inline-flex px-2 py-1 bg-amber-50 text-amber-800 rounded text-xs">📎 {att.name}</span>
                                     )
                                   ))}
+                                  {c.systemIds?.flatMap((sid) => {
+                                    const system = projectSystems.find((s) => s.id === sid);
+                                    const ev = c.systemEvidence?.[sid];
+                                    if (!system || !ev) return [];
+                                    return [
+                                      ...ev.evidence.map((file, i) => (
+                                        <span key={`system-ev-${sid}-${i}`} className="inline-flex px-2 py-1 bg-slate-100 text-slate-800 rounded text-xs">
+                                          🖥️ {system.name}: 📄 {file}
+                                        </span>
+                                      )),
+                                      ...ev.evidenceLinks.map((url, i) => (
+                                        <a key={`system-link-${sid}-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex px-2 py-1 bg-slate-200 text-slate-800 rounded text-xs hover:bg-slate-300">
+                                          🖥️ {system.name}: 🔗 {url.length > 30 ? `${url.slice(0, 30)}...` : url}
+                                        </a>
+                                      )),
+                                    ];
+                                  })}
                                   {c.assetIds?.map((aid) => {
                                     const asset = projectAssets.find((a) => a.id === aid);
                                     const ev = c.assetEvidence?.[aid];
@@ -1313,6 +1333,23 @@ export default function ProjectDetailPage() {
                           <span key={att.id} className="inline-flex px-2 py-1 bg-amber-50 text-amber-800 rounded text-xs">📎 {att.name}</span>
                         )
                       ))}
+                      {c.systemIds?.flatMap((sid) => {
+                        const system = projectSystems.find((s) => s.id === sid);
+                        const ev = c.systemEvidence?.[sid];
+                        if (!system || !ev) return [];
+                        return [
+                          ...ev.evidence.map((file, i) => (
+                            <span key={`system-ev-${sid}-${i}`} className="inline-flex px-2 py-1 bg-slate-100 text-slate-800 rounded text-xs">
+                              🖥️ {system.name}: 📄 {file}
+                            </span>
+                          )),
+                          ...ev.evidenceLinks.map((url, i) => (
+                            <a key={`system-link-${sid}-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex px-2 py-1 bg-slate-200 text-slate-800 rounded text-xs hover:bg-slate-300">
+                              🖥️ {system.name}: 🔗 {url.length > 30 ? `${url.slice(0, 30)}...` : url}
+                            </a>
+                          )),
+                        ];
+                      })}
                       {c.assetIds?.map((aid) => {
                         const asset = projectAssets.find((a) => a.id === aid);
                         const ev = c.assetEvidence?.[aid];
@@ -2066,34 +2103,76 @@ export default function ProjectDetailPage() {
                 {projectSystems.length === 0 ? (
                   <p className="text-xs text-gray-400 italic">{t('projects.controlSystemsNone')}</p>
                 ) : (
-                  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                  <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-3">
                     {projectSystems.map((s) => {
                       const checked = controlForm.systemIds.includes(s.id);
+                      const systemEv = controlForm.systemEvidence[s.id] || { evidence: [], evidenceLinks: [] };
                       return (
-                        <label key={s.id} className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5 rounded border-gray-300"
-                            checked={checked}
-                            onChange={() => {
-                              setControlForm((prev) => ({
-                                ...prev,
-                                systemIds: checked
-                                  ? prev.systemIds.filter((sid) => sid !== s.id)
-                                  : [...prev.systemIds, s.id],
-                              }));
-                            }}
-                          />
-                          <span>
-                            <span className="font-medium text-gray-900">{s.name}</span>
-                            {s.registrySystemId ? (
-                              <span className="ml-1.5 text-[10px] font-medium px-1 py-0.5 rounded bg-brand-50 text-brand-700">
-                                {t('projects.fromRegistryBadge')}
-                              </span>
-                            ) : null}
-                            {s.purpose ? <span className="text-gray-500"> — {s.purpose}</span> : null}
-                          </span>
-                        </label>
+                        <div key={s.id}>
+                          <label className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 rounded border-gray-300"
+                              checked={checked}
+                              onChange={() => {
+                                setControlForm((prev) => {
+                                  const systemIds = checked
+                                    ? prev.systemIds.filter((sid) => sid !== s.id)
+                                    : [...prev.systemIds, s.id];
+                                  const systemEvidence = { ...prev.systemEvidence };
+                                  if (checked) delete systemEvidence[s.id];
+                                  else systemEvidence[s.id] = systemEvidence[s.id] || { evidence: [], evidenceLinks: [] };
+                                  return {
+                                    ...prev,
+                                    systemIds,
+                                    systemEvidence,
+                                    owner: !checked && !prev.owner.trim() && s.owner ? s.owner : prev.owner,
+                                  };
+                                });
+                              }}
+                            />
+                            <span>
+                              <span className="font-medium text-gray-900">{s.name}</span>
+                              {s.registrySystemId ? (
+                                <span className="ml-1.5 text-[10px] font-medium px-1 py-0.5 rounded bg-brand-50 text-brand-700">
+                                  {t('projects.fromRegistryBadge')}
+                                </span>
+                              ) : null}
+                              {s.purpose ? <span className="text-gray-500"> — {s.purpose}</span> : null}
+                              {s.owner ? <span className="block text-xs text-gray-500">{t('projects.systemOwner')}: {s.owner}</span> : null}
+                            </span>
+                          </label>
+                          {checked && (
+                            <div className="mt-2 ml-6 space-y-2 border-l-2 border-slate-100 pl-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">{t('projects.systemEvidenceFiles', { name: s.name })}</label>
+                                <input
+                                  type="text"
+                                  value={systemEv.evidence.join(', ')}
+                                  onChange={(e) => {
+                                    const evidence = e.target.value.split(',').map((value) => value.trim()).filter(Boolean);
+                                    setControlForm((prev) => ({ ...prev, systemEvidence: { ...prev.systemEvidence, [s.id]: { ...systemEv, evidence } } }));
+                                  }}
+                                  placeholder={t('projects.evidenceManualPlaceholder')}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">{t('projects.systemEvidenceLinks', { name: s.name })}</label>
+                                <input
+                                  type="text"
+                                  value={systemEv.evidenceLinks.join(', ')}
+                                  onChange={(e) => {
+                                    const evidenceLinks = e.target.value.split(',').map((value) => value.trim()).filter(Boolean);
+                                    setControlForm((prev) => ({ ...prev, systemEvidence: { ...prev.systemEvidence, [s.id]: { ...systemEv, evidenceLinks } } }));
+                                  }}
+                                  placeholder="https://..."
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -2125,7 +2204,12 @@ export default function ProjectDetailPage() {
                                   const nextEv = { ...prev.assetEvidence };
                                   if (checked) delete nextEv[a.id];
                                   else nextEv[a.id] = nextEv[a.id] || { evidence: [], evidenceLinks: [] };
-                                  return { ...prev, assetIds: nextIds, assetEvidence: nextEv };
+                                  return {
+                                    ...prev,
+                                    assetIds: nextIds,
+                                    assetEvidence: nextEv,
+                                    owner: !checked && !prev.owner.trim() && a.supportOwner ? a.supportOwner : prev.owner,
+                                  };
                                 });
                               }}
                             />
@@ -2137,6 +2221,7 @@ export default function ProjectDetailPage() {
                                 </span>
                               ) : null}
                               {a.purpose ? <span className="text-gray-500"> — {a.purpose}</span> : null}
+                              {a.supportOwner ? <span className="block text-xs text-gray-500">{t('projects.systemOwner')}: {a.supportOwner}</span> : null}
                             </span>
                           </label>
                           {checked && (

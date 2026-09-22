@@ -336,6 +336,8 @@ model ProjectControl {
   assetIds        String   @default("[]")
   /// JSON map assetId → { evidence, evidenceLinks } — per-asset evidence on this control
   assetEvidence   String   @default("{}")
+  /// JSON map systemId → { evidence, evidenceLinks } — per-system evidence on this control
+  systemEvidence  String   @default("{}")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

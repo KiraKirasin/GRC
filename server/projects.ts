@@ -133,6 +133,10 @@ function normalizeAssetEvidence(raw: unknown): Record<string, { evidence: string
   return out;
 }
 
+function normalizeSystemEvidence(raw: unknown): Record<string, { evidence: string[]; evidenceLinks: string[] }> {
+  return normalizeAssetEvidence(raw);
+}
+
 function serializeProjectControl(control: {
   evidence: string;
   evidenceLinks: string;
@@ -142,6 +146,7 @@ function serializeProjectControl(control: {
   systemIds?: string;
   assetIds?: string;
   assetEvidence?: string;
+  systemEvidence?: string;
 } & Record<string, unknown>) {
   return {
     ...control,
@@ -153,6 +158,7 @@ function serializeProjectControl(control: {
     systemIds: parseJsonArray<string>(control.systemIds || '[]'),
     assetIds: parseJsonArray<string>(control.assetIds || '[]'),
     assetEvidence: normalizeAssetEvidence(parseJsonObject(control.assetEvidence || '{}')),
+    systemEvidence: normalizeSystemEvidence(parseJsonObject(control.systemEvidence || '{}')),
   };
 }
 
@@ -989,13 +995,35 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         }
         data.assetEvidence = JSON.stringify(filteredEv);
       }
+      if (body.systemEvidence !== undefined || body.systemIds !== undefined) {
+        const ids = Array.isArray(body.systemIds)
+          ? body.systemIds.map((id: unknown) => String(id)).filter(Boolean)
+          : body.systemIds === undefined
+            ? parseJsonArray<string>(existing.systemIds || '[]')
+            : [];
+        const valid = await prisma.projectSystem.findMany({
+          where: { projectId: req.params.id, id: { in: ids } },
+          select: { id: true },
+        });
+        const validSet = new Set(valid.map((s) => s.id));
+        const nextIds = ids.filter((id: string) => validSet.has(id));
+        data.systemIds = JSON.stringify(nextIds);
+        const rawEv = body.systemEvidence !== undefined
+          ? normalizeSystemEvidence(body.systemEvidence)
+          : normalizeSystemEvidence(parseJsonObject(existing.systemEvidence || '{}'));
+        const filteredEv: Record<string, { evidence: string[]; evidenceLinks: string[] }> = {};
+        for (const systemId of nextIds) {
+          if (rawEv[systemId]) filteredEv[systemId] = rawEv[systemId];
+        }
+        data.systemEvidence = JSON.stringify(filteredEv);
+      }
 
       const updated = await prisma.projectControl.update({ where: { id: existing.id }, data });
 
       const fields = [
         'title', 'description', 'organizationDescription', 'framework', 'category', 'status', 'owner',
         'controlDesign', 'source', 'lastReviewed', 'controlCode',
-        'evidence', 'evidenceLinks', 'attachments', 'accessList', 'mitigation', 'systemIds', 'assetIds', 'assetEvidence',
+        'evidence', 'evidenceLinks', 'attachments', 'accessList', 'mitigation', 'systemIds', 'systemEvidence', 'assetIds', 'assetEvidence',
       ];
       await auditFromRequest(prisma, req, {
         category: 'data',
