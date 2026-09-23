@@ -156,6 +156,7 @@ model GRCControl {
 
 model Policy {
   id           String   @id @default(cuid())
+  company      String   @default("NovaPay LLC")
   title        String
   version      String   @default("1.0")
   status       String   @default("draft")
@@ -173,6 +174,7 @@ model Policy {
 
 model GRCDocument {
   id         String   @id @default(cuid())
+  company    String   @default("NovaPay LLC")
   title      String
   type       String   @default("other")
   framework  String   @default("")

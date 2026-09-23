@@ -18,6 +18,7 @@ import { registerInformationSystemRoutes } from './information-systems.js';
 import { registerAdminImportRoutes } from './admin-import.js';
 import { backfillMissingSystemCodes } from './is-registry-codes.js';
 import { actsAsControlOwner, userOwnsControl } from './auth/ownership.js';
+import { roleForCompany } from './auth/permissions.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
@@ -72,7 +73,56 @@ app.get('/api/controls', async (req, res) => {
     if (actsAsControlOwner(req.user)) {
       controls = controls.filter((c) => userOwnsControl(req.user, c));
     }
-    res.json(controls.map(c => serializeControl(c)));
+
+    const controlIds = controls.map(control => control.id);
+    const projectControls = controlIds.length === 0
+      ? []
+      : await prisma.projectControl.findMany({
+        where: { sourceControlId: { in: controlIds } },
+        select: {
+          sourceControlId: true,
+          evidence: true,
+          evidenceLinks: true,
+          attachments: true,
+          owner: true,
+          accessList: true,
+          project: { select: { company: true } },
+        },
+      });
+
+    const projectEvidence = new Map<string, {
+      evidence: string[];
+      evidenceLinks: string[];
+      attachments: string[];
+    }>();
+    for (const projectControl of projectControls) {
+      if (!projectControl.sourceControlId ||
+        roleForCompany(req.user?.companies || {}, projectControl.project.company) === null ||
+        (actsAsControlOwner(req.user) && !userOwnsControl(req.user, projectControl))) {
+        continue;
+      }
+      const current = projectEvidence.get(projectControl.sourceControlId) || {
+        evidence: [],
+        evidenceLinks: [],
+        attachments: [],
+      };
+      current.evidence.push(...parseJsonArray<string>(projectControl.evidence));
+      current.evidenceLinks.push(...parseJsonArray<string>(projectControl.evidenceLinks));
+      current.attachments.push(...parseJsonArray<string>(projectControl.attachments));
+      projectEvidence.set(projectControl.sourceControlId, current);
+    }
+
+    res.json(controls.map(control => {
+      const serialized = serializeControl(control);
+      const additional = projectEvidence.get(control.id);
+      if (!additional) return serialized;
+      return {
+        ...serialized,
+        evidence: [...new Set([...serialized.evidence, ...additional.evidence])],
+        evidenceLinks: [...new Set([...serialized.evidenceLinks, ...additional.evidenceLinks])],
+        attachments: [...new Set([...serialized.attachments, ...additional.attachments])],
+      };
+    }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to load controls' });

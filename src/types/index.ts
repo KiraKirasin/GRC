@@ -294,6 +294,7 @@ export const CONTROL_FRAMEWORKS = [
 
 export interface Policy {
   id: string;
+  company: CompanyName;
   title: string;
   version: string;
   status: PolicyStatus;
@@ -319,6 +320,7 @@ export interface GRCDocumentFile {
 
 export interface GRCDocument {
   id: string;
+  company: CompanyName;
   title: string;
   type: DocumentType;
   framework: string;

@@ -174,14 +174,14 @@ const SEED_CONTROLS: GRCControl[] = [
 ];
 
 const SEED_POLICIES: Policy[] = [
-  { id: genId(), title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01', links: ['https://novapay-confluence/policy/is-policy'], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
-  { id: genId(), title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15', links: [], attachments: [], createdAt: '2025-06-01T10:00:00Z', updatedAt: '2026-04-15T10:00:00Z' },
-  { id: genId(), title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10', links: [], attachments: [], createdAt: '2026-02-01T10:00:00Z', updatedAt: '2026-06-10T10:00:00Z' },
-  { id: genId(), title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01', links: [], attachments: [], createdAt: '2026-04-01T10:00:00Z', updatedAt: '2026-06-01T10:00:00Z' },
-  { id: genId(), title: 'Acceptable Use Policy', version: '3.0', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Acceptable use of company assets', lastReviewed: '2026-03-01', links: [], attachments: [], createdAt: '2024-01-01T10:00:00Z', updatedAt: '2026-03-01T10:00:00Z' },
-  { id: genId(), title: 'Business Continuity Policy', version: '1.0', status: 'published', framework: 'NBU Resolution №143', owner: 'Andriy Bondar', description: 'BCM framework', lastReviewed: '2026-02-01', links: [], attachments: [], createdAt: '2025-12-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
-  { id: genId(), title: 'Password Policy', version: '1.5', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Password requirements and management', lastReviewed: '2026-04-01', links: [], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
-  { id: genId(), title: 'Cloud Security Policy', version: '0.8', status: 'in_review', framework: 'SOC 2', owner: 'Dmytro Kovalenko', description: 'Cloud service security requirements', lastReviewed: '2026-05-20', links: [], attachments: [], createdAt: '2026-03-01T10:00:00Z', updatedAt: '2026-05-20T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Information Security Policy', version: '2.3', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Overall ISMS policy', lastReviewed: '2026-05-01', links: ['https://novapay-confluence/policy/is-policy'], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Data Protection Policy', version: '1.2', status: 'published', framework: 'GDPR', owner: 'Olena Shevchenko', description: 'Personal data processing and protection', lastReviewed: '2026-04-15', links: [], attachments: [], createdAt: '2025-06-01T10:00:00Z', updatedAt: '2026-04-15T10:00:00Z' },
+  { id: genId(), company: 'Novapay Solutions', title: 'Incident Response Policy', version: '0.9', status: 'in_review', framework: 'NIST CSF', owner: 'Maria Koval', description: 'Incident handling and escalation', lastReviewed: '2026-06-10', links: [], attachments: [], createdAt: '2026-02-01T10:00:00Z', updatedAt: '2026-06-10T10:00:00Z' },
+  { id: genId(), company: 'Novapay Moldova', title: 'Third-Party Risk Policy', version: '0.5', status: 'draft', framework: 'DORA', owner: 'Andriy Bondar', description: 'Vendor risk management framework', lastReviewed: '2026-06-01', links: [], attachments: [], createdAt: '2026-04-01T10:00:00Z', updatedAt: '2026-06-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay EU UAB', title: 'Acceptable Use Policy', version: '3.0', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Acceptable use of company assets', lastReviewed: '2026-03-01', links: [], attachments: [], createdAt: '2024-01-01T10:00:00Z', updatedAt: '2026-03-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Business Continuity Policy', version: '1.0', status: 'published', framework: 'NBU Resolution №143', owner: 'Andriy Bondar', description: 'BCM framework', lastReviewed: '2026-02-01', links: [], attachments: [], createdAt: '2025-12-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Password Policy', version: '1.5', status: 'published', framework: 'ISO 27001', owner: 'Ivan Petrenko', description: 'Password requirements and management', lastReviewed: '2026-04-01', links: [], attachments: [], createdAt: '2025-01-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
+  { id: genId(), company: 'Novapay Solutions', title: 'Cloud Security Policy', version: '0.8', status: 'in_review', framework: 'SOC 2', owner: 'Dmytro Kovalenko', description: 'Cloud service security requirements', lastReviewed: '2026-05-20', links: [], attachments: [], createdAt: '2026-03-01T10:00:00Z', updatedAt: '2026-05-20T10:00:00Z' },
 ];
 
 const SEED_CHECKS: AutomatedCheck[] = [
@@ -212,14 +212,14 @@ const SEED_MILESTONES: Milestone[] = [
 ];
 
 const SEED_DOCUMENTS: GRCDocument[] = [
-  { id: genId(), title: 'Information Security Policy v2.3', type: 'policy', framework: 'ISO 27001', status: 'active', files: [{ name: 'IS_Policy_v2.3.pdf', size: 245760, type: 'application/pdf' }], links: ['https://novapay-confluence/policy/is-policy'], uploadedAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
-  { id: genId(), title: 'Risk Assessment Report 2026', type: 'report', framework: 'ISO 27001', status: 'active', files: [{ name: 'Risk_Assessment_2026.pdf', size: 524288, type: 'application/pdf' }], links: [], uploadedAt: '2026-06-15T10:00:00Z', updatedAt: '2026-06-15T10:00:00Z' },
-  { id: genId(), title: 'SOC 2 Type II Report', type: 'certificate', framework: 'SOC 2', status: 'active', files: [{ name: 'SOC2_Report_2025.pdf', size: 1048576, type: 'application/pdf' }], links: [], uploadedAt: '2025-12-01T10:00:00Z', updatedAt: '2025-12-01T10:00:00Z' },
-  { id: genId(), title: 'BCP Test Results Q2', type: 'evidence', framework: 'NBU Resolution №143', status: 'active', files: [], links: ['https://novapay-bcm/test-results-q2'], uploadedAt: '2026-06-20T10:00:00Z', updatedAt: '2026-06-20T10:00:00Z' },
-  { id: genId(), title: 'Data Processing Register', type: 'procedure', framework: 'GDPR', status: 'active', files: [{ name: 'RoPA_v2.xlsx', size: 102400, type: 'application/xlsx' }], links: ['https://novapay-privacy/ropa'], uploadedAt: '2026-04-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
-  { id: genId(), title: 'Penetration Test Report Q1 2026', type: 'report', framework: 'PCI DSS', status: 'active', files: [{ name: 'PT_Report_Q1_2026.pdf', size: 2097152, type: 'application/pdf' }], links: [], uploadedAt: '2026-03-15T10:00:00Z', updatedAt: '2026-03-15T10:00:00Z' },
-  { id: genId(), title: 'ISO 27001 Certificate', type: 'certificate', framework: 'ISO 27001', status: 'active', files: [{ name: 'ISO27001_Cert.pdf', size: 512000, type: 'application/pdf' }], links: [], uploadedAt: '2025-06-01T10:00:00Z', updatedAt: '2025-06-01T10:00:00Z' },
-  { id: genId(), title: 'Incident Response Playbooks', type: 'procedure', framework: 'NIST CSF', status: 'active', files: [{ name: 'IR_Playbooks_v2.docx', size: 307200, type: 'application/docx' }], links: ['https://novapay-siem/playbooks'], uploadedAt: '2026-02-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Information Security Policy v2.3', type: 'policy', framework: 'ISO 27001', status: 'active', files: [{ name: 'IS_Policy_v2.3.pdf', size: 245760, type: 'application/pdf' }], links: ['https://novapay-confluence/policy/is-policy'], uploadedAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Risk Assessment Report 2026', type: 'report', framework: 'ISO 27001', status: 'active', files: [{ name: 'Risk_Assessment_2026.pdf', size: 524288, type: 'application/pdf' }], links: [], uploadedAt: '2026-06-15T10:00:00Z', updatedAt: '2026-06-15T10:00:00Z' },
+  { id: genId(), company: 'Novapay Solutions', title: 'SOC 2 Type II Report', type: 'certificate', framework: 'SOC 2', status: 'active', files: [{ name: 'SOC2_Report_2025.pdf', size: 1048576, type: 'application/pdf' }], links: [], uploadedAt: '2025-12-01T10:00:00Z', updatedAt: '2025-12-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay EU UAB', title: 'BCP Test Results Q2', type: 'evidence', framework: 'NBU Resolution №143', status: 'active', files: [], links: ['https://novapay-bcm/test-results-q2'], uploadedAt: '2026-06-20T10:00:00Z', updatedAt: '2026-06-20T10:00:00Z' },
+  { id: genId(), company: 'Novapay Moldova', title: 'Data Processing Register', type: 'procedure', framework: 'GDPR', status: 'active', files: [{ name: 'RoPA_v2.xlsx', size: 102400, type: 'application/xlsx' }], links: ['https://novapay-privacy/ropa'], uploadedAt: '2026-04-01T10:00:00Z', updatedAt: '2026-04-01T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'Penetration Test Report Q1 2026', type: 'report', framework: 'PCI DSS', status: 'active', files: [{ name: 'PT_Report_Q1_2026.pdf', size: 2097152, type: 'application/pdf' }], links: [], uploadedAt: '2026-03-15T10:00:00Z', updatedAt: '2026-03-15T10:00:00Z' },
+  { id: genId(), company: 'NovaPay LLC', title: 'ISO 27001 Certificate', type: 'certificate', framework: 'ISO 27001', status: 'active', files: [{ name: 'ISO27001_Cert.pdf', size: 512000, type: 'application/pdf' }], links: [], uploadedAt: '2025-06-01T10:00:00Z', updatedAt: '2025-06-01T10:00:00Z' },
+  { id: genId(), company: 'Novapay Solutions', title: 'Incident Response Playbooks', type: 'procedure', framework: 'NIST CSF', status: 'active', files: [{ name: 'IR_Playbooks_v2.docx', size: 307200, type: 'application/docx' }], links: ['https://novapay-siem/playbooks'], uploadedAt: '2026-02-01T10:00:00Z', updatedAt: '2026-02-01T10:00:00Z' },
 ];
 
 const SEED_INTEGRATIONS: Integration[] = [
@@ -240,6 +240,7 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 function normalizePolicy(p: Policy): Policy {
   return {
     ...p,
+    company: p.company || 'NovaPay LLC',
     links: Array.isArray(p.links) ? p.links : [],
     attachments: Array.isArray(p.attachments) ? p.attachments : [],
   };
