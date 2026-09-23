@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
-import { DocumentType, FRAMEWORKS } from '../types';
+import { COMPANIES, DocumentType, FRAMEWORKS, type CompanyName } from '../types';
 
 const typeColors: Record<string, string> = {
   procedure: 'bg-blue-100 text-blue-700', standard: 'bg-purple-100 text-purple-700',
@@ -19,15 +19,20 @@ export default function DocumentsPage() {
   const { t } = useTranslation();
   const { documents, addDocument, deleteDocument } = useCompliance();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', type: 'other' as DocumentType, framework: '', status: 'active' as 'active' | 'archived' });
+  const [form, setForm] = useState({ company: 'NovaPay LLC' as CompanyName, title: '', type: 'other' as DocumentType, framework: '', status: 'active' as 'active' | 'archived' });
   const [files, setFiles] = useState<{ name: string; size: number; type: string }[]>([]);
   const [links, setLinks] = useState<string[]>(['']);
   const [search, setSearch] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const filtered = documents.filter(d => !search || d.title.toLowerCase().includes(search.toLowerCase()));
+  const filtered = documents.filter(d => {
+    const matchesSearch = !search || d.title.toLowerCase().includes(search.toLowerCase());
+    const matchesCompany = !companyFilter || d.company === companyFilter;
+    return matchesSearch && matchesCompany;
+  });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -49,13 +54,13 @@ export default function DocumentsPage() {
     const validLinks = links.filter(l => l.trim());
     addDocument({ ...form, files, links: validLinks, uploadedAt: now, updatedAt: now });
     setShowForm(false);
-    setForm({ title: '', type: 'other' as DocumentType, framework: '', status: 'active' });
+    setForm({ company: 'NovaPay LLC' as CompanyName, title: '', type: 'other' as DocumentType, framework: '', status: 'active' });
     setFiles([]);
     setLinks(['']);
   };
 
   const openForm = () => {
-    setForm({ title: '', type: 'other' as DocumentType, framework: '', status: 'active' });
+    setForm({ company: 'NovaPay LLC' as CompanyName, title: '', type: 'other' as DocumentType, framework: '', status: 'active' });
     setFiles([]);
     setLinks(['']);
     setShowForm(true);
@@ -69,6 +74,16 @@ export default function DocumentsPage() {
       </div>
       <div className="flex gap-3 mb-4">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={t('common.search')} className="px-3 py-2 border border-gray-300 rounded-lg text-sm flex-1 min-w-[200px]" />
+        <select
+          value={companyFilter}
+          onChange={(e) => setCompanyFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+        >
+          <option value="">{t('common.all')} — {t('documents.company')}</option>
+          {COMPANIES.map((company) => (
+            <option key={company} value={company}>{company}</option>
+          ))}
+        </select>
       </div>
       {filtered.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-gray-200"><p className="text-gray-400 text-lg">{t('documents.noDocuments')}</p></div>
@@ -90,6 +105,7 @@ export default function DocumentsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-gray-900">{d.title}</span>
+                      <span className="text-xs text-gray-500">{d.company}</span>
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${typeColors[d.type]}`}>{t(`documents.types.${d.type}`)}</span>
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${d.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'}`}>{t(`documents.statuses.${d.status}`)}</span>
                     </div>
@@ -157,7 +173,15 @@ export default function DocumentsPage() {
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-lg w-full mx-4 my-8">
             <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-semibold text-gray-900">{t('documents.addDocument')}</h3><button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button></div>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('documents.title_')}</label><input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('documents.company')}</label>
+                  <select value={form.company} onChange={e => setForm({ ...form, company: e.target.value as CompanyName })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    {COMPANIES.map((company) => <option key={company} value={company}>{company}</option>)}
+                  </select>
+                </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('documents.title_')}</label><input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required /></div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('documents.type')}</label><select value={form.type} onChange={e => setForm({ ...form, type: e.target.value as DocumentType })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">{(Object.keys(t('documents.types', { returnObjects: true }) as object)).map(ty => <option key={ty} value={ty}>{t(`documents.types.${ty}`)}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('documents.framework')}</label><select value={form.framework} onChange={e => setForm({ ...form, framework: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">{FRAMEWORKS.map(fw => <option key={fw.name} value={fw.name}>{fw.shortName}</option>)}</select></div>

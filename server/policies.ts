@@ -72,6 +72,7 @@ function policyDir(policyId: string) {
 
 function serializePolicy(policy: {
   id: string;
+  company: string;
   title: string;
   version: string;
   status: string;
@@ -86,6 +87,7 @@ function serializePolicy(policy: {
 }) {
   return {
     id: policy.id,
+    company: String(policy.company || 'NovaPay LLC'),
     title: policy.title,
     version: policy.version,
     status: policy.status,
@@ -131,6 +133,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
       const body = req.body || {};
       const created = await prisma.policy.create({
         data: {
+          company: String(body.company || 'NovaPay LLC'),
           title: String(body.title || '').trim() || 'Untitled policy',
           version: String(body.version || '1.0'),
           status: String(body.status || 'draft'),
@@ -175,7 +178,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
       const body = req.body || {};
       const data: Record<string, string> = {};
       for (const key of [
-        'title', 'version', 'status', 'framework', 'owner', 'description', 'lastReviewed',
+        'title', 'version', 'status', 'framework', 'owner', 'description', 'lastReviewed', 'company',
       ] as const) {
         if (body[key] !== undefined) data[key] = String(body[key] ?? '');
       }

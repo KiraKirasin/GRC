@@ -65,6 +65,22 @@ const typeColors: Record<string, string> = {
   int: 'bg-orange-100 text-orange-800',
 };
 
+const REGISTRY_COLUMNS = [
+  'systemCode',
+  'name',
+  'purpose',
+  'supportOwner',
+  'vendor',
+  'placement',
+  'criticality',
+  'company',
+  'systemType',
+] as const;
+
+type RegistryColumn = typeof REGISTRY_COLUMNS[number];
+
+const DEFAULT_VISIBLE_COLUMNS = new Set<RegistryColumn>(REGISTRY_COLUMNS);
+
 export default function SystemsRegistryPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -83,6 +99,21 @@ export default function SystemsRegistryPage() {
   const [filterCompany, setFilterCompany] = useState('');
   const [filterCriticality, setFilterCriticality] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [visibleColumns, setVisibleColumns] = useState<Set<RegistryColumn>>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('systems-registry-visible-columns') || 'null');
+      if (Array.isArray(stored)) {
+        const valid = stored.filter((column): column is RegistryColumn =>
+          REGISTRY_COLUMNS.includes(column as RegistryColumn),
+        );
+        if (valid.length) return new Set(valid);
+      }
+    } catch {
+      return new Set(DEFAULT_VISIBLE_COLUMNS);
+    }
+    return new Set(DEFAULT_VISIBLE_COLUMNS);
+  });
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showTechFields, setShowTechFields] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -117,6 +148,10 @@ export default function SystemsRegistryPage() {
       setForm(f => ({ ...f, company: allowedCompanies[0] }));
     }
   }, [allowedCompanies, form.company]);
+
+  useEffect(() => {
+    localStorage.setItem('systems-registry-visible-columns', JSON.stringify([...visibleColumns]));
+  }, [visibleColumns]);
 
   if (!canRead) {
     return (
@@ -235,6 +270,26 @@ export default function SystemsRegistryPage() {
   const placementLabel = (p: string) =>
     p ? t(`systemsRegistry.placement.${p}`, { defaultValue: p }) : '—';
 
+  const toggleColumn = (column: RegistryColumn) => {
+    setVisibleColumns(current => {
+      const next = new Set(current);
+      if (next.has(column)) {
+        if (next.size === 1) return current;
+        next.delete(column);
+      } else {
+        next.add(column);
+      }
+      return next;
+    });
+  };
+
+  const columnLabel = (column: RegistryColumn) =>
+    column === 'company'
+      ? t('systemsRegistry.fields.company')
+      : column === 'systemType'
+        ? t('systemsRegistry.fields.systemType')
+        : t(`systemsRegistry.columns.${column}`);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
@@ -257,7 +312,7 @@ export default function SystemsRegistryPage() {
         <p className="mb-4 text-sm text-red-600">{error}</p>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <input
           type="text"
           value={search}
@@ -295,6 +350,37 @@ export default function SystemsRegistryPage() {
             <option key={c} value={c}>{t(`systemsRegistry.criticality.${c}`)}</option>
           ))}
         </select>
+        <div className="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => setShowColumnPicker(value => !value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white hover:bg-gray-50 whitespace-nowrap"
+            aria-expanded={showColumnPicker}
+          >
+            {t('systemsRegistry.chooseColumns')}
+          </button>
+          {showColumnPicker && (
+            <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+              <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {t('systemsRegistry.chooseColumns')}
+              </p>
+              {REGISTRY_COLUMNS.map(column => (
+                <label
+                  key={column}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns.has(column)}
+                    onChange={() => toggleColumn(column)}
+                    className="rounded border-gray-300"
+                  />
+                  {columnLabel(column)}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -309,39 +395,41 @@ export default function SystemsRegistryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.systemCode')}</th>
-                  <th className="px-4 py-3 min-w-[10rem]">{t('systemsRegistry.columns.name')}</th>
-                  <th className="px-4 py-3 min-w-[12rem]">{t('systemsRegistry.columns.purpose')}</th>
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.supportOwner')}</th>
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.vendor')}</th>
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.placement')}</th>
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.criticality')}</th>
-                  <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.fields.company')}</th>
+                  {visibleColumns.has('systemCode') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.systemCode')}</th>}
+                  {visibleColumns.has('name') && <th className="px-4 py-3 min-w-[10rem]">{t('systemsRegistry.columns.name')}</th>}
+                  {visibleColumns.has('purpose') && <th className="px-4 py-3 min-w-[12rem]">{t('systemsRegistry.columns.purpose')}</th>}
+                  {visibleColumns.has('supportOwner') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.supportOwner')}</th>}
+                  {visibleColumns.has('vendor') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.vendor')}</th>}
+                  {visibleColumns.has('placement') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.placement')}</th>}
+                  {visibleColumns.has('criticality') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.columns.criticality')}</th>}
+                  {visibleColumns.has('company') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.fields.company')}</th>}
+                  {visibleColumns.has('systemType') && <th className="px-4 py-3 whitespace-nowrap">{t('systemsRegistry.fields.systemType')}</th>}
                   {canWrite && <th className="px-4 py-3 whitespace-nowrap">{t('common.actions')}</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map(item => (
                   <tr key={item.id} className="hover:bg-gray-50/80 align-top">
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    {visibleColumns.has('systemCode') && <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-mono text-xs font-semibold text-gray-900">{item.systemCode}</span>
                       <span className={`ml-1.5 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[item.systemType] || typeColors.app}`}>
                         {item.systemType}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-xs">
+                    </td>}
+                    {visibleColumns.has('name') && <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>}
+                    {visibleColumns.has('purpose') && <td className="px-4 py-3 text-gray-600 max-w-xs">
                       <span className="line-clamp-2" title={item.purpose}>{item.purpose || '—'}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{item.supportOwner || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{item.vendor || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{placementLabel(item.placement)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    </td>}
+                    {visibleColumns.has('supportOwner') && <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{item.supportOwner || '—'}</td>}
+                    {visibleColumns.has('vendor') && <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{item.vendor || '—'}</td>}
+                    {visibleColumns.has('placement') && <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{placementLabel(item.placement)}</td>}
+                    {visibleColumns.has('criticality') && <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${criticalityColors[item.criticality] || criticalityColors.medium}`}>
                         {t(`systemsRegistry.criticality.${item.criticality}`, { defaultValue: item.criticality })}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{item.company}</td>
+                    </td>}
+                    {visibleColumns.has('company') && <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{item.company}</td>}
+                    {visibleColumns.has('systemType') && <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{t(`systemsRegistry.systemTypes.${item.systemType}`, { defaultValue: item.systemType })}</td>}
                     {canWrite && (
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button

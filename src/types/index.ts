@@ -294,6 +294,7 @@ export const CONTROL_FRAMEWORKS = [
 
 export interface Policy {
   id: string;
+  company: CompanyName;
   title: string;
   version: string;
   status: PolicyStatus;
@@ -319,6 +320,7 @@ export interface GRCDocumentFile {
 
 export interface GRCDocument {
   id: string;
+  company: CompanyName;
   title: string;
   type: DocumentType;
   framework: string;
@@ -513,6 +515,8 @@ export interface ProjectAsset {
 
 /** Per-asset evidence on a project control */
 export type ControlAssetEvidenceMap = Record<string, { evidence: string[]; evidenceLinks: string[] }>;
+/** Per-system evidence on a project control. */
+export type ControlSystemEvidenceMap = Record<string, { evidence: string[]; evidenceLinks: string[] }>;
 
 /** IS Registry system type prefixes */
 export const IS_SYSTEM_TYPES = {
@@ -678,6 +682,8 @@ export interface ProjectControl {
   mitigation: ControlMitigation;
   /** ProjectSystem ids this control applies to (multi-select) */
   systemIds: string[];
+  /** Evidence per linked system */
+  systemEvidence: ControlSystemEvidenceMap;
   /** ProjectAsset ids this control applies to (multi-select) */
   assetIds: string[];
   /** Evidence per linked asset */
