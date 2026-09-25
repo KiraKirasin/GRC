@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">GRC Orbit logo</title>
+  <desc id="desc">A blue circular GRC mark with a yellow orbit accent.</desc>
+  <path d="M362 103c36 29 58 73 58 123 0 88-72 160-160 160-50 0-95-22-124-59" fill="none" stroke="#690DD3" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="368" cy="104" r="22" fill="#690DD3"/>
+  <text x="256" y="285" text-anchor="middle" fill="#690DD3" font-family="Arial, sans-serif" font-size="132" font-weight="800" letter-spacing="-8">GRC</text>
+  <path d="M126 350h260" stroke="#690DD3" stroke-width="10" stroke-linecap="round"/>
+</svg>

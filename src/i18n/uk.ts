@@ -399,6 +399,7 @@ export default {
     notFound: 'Проєкт не знайдено',
     loadFailed: 'Не вдалося завантажити проєкти з сервера',
     type: 'Тип',
+    expandControl: 'Показати повний текст контролю',
     company: 'Компанія',
     title_: 'Назва проєкту',
     startDate: 'Дата початку',

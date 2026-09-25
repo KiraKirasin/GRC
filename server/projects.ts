@@ -60,12 +60,36 @@ function parseJsonObject(value: string, fallback: Record<string, unknown> = {}) 
   }
 }
 
+function decodeAttachmentNameSafe(value: unknown): string {
+  const name = String(value || 'file');
+  if ([...name].some((char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x0400 && code <= 0x04ff;
+  })) return name;
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? name : decoded;
+}
+
+function decodeAttachmentName(value: unknown): string {
+  const name = String(value || 'file');
+  if ([...name].some((char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x0400 && code <= 0x04ff;
+  })) return name;
+  // Busboy can expose UTF-8 multipart filenames as Latin-1 mojibake (for example, "Ð..."),
+  // while correctly decoded filenames already contain Cyrillic characters.
+  if (/[00-ff]/u.test(name)) return name;
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  if (decoded.includes('\uFFFD')) return name;
+  return decoded.includes('ffd') ? name : decoded;
+}
+
 function normalizeAttachments(raw: unknown[]): ControlAttachmentMeta[] {
   return raw.map((item, i) => {
     if (typeof item === 'string') {
       return {
         id: `legacy-${i}`,
-        name: item,
+        name: decodeAttachmentNameSafe(item),
         storedName: '',
         size: 0,
         mimeType: '',
@@ -76,7 +100,7 @@ function normalizeAttachments(raw: unknown[]): ControlAttachmentMeta[] {
       const o = item as Record<string, unknown>;
       return {
         id: String(o.id || `att-${i}`),
-        name: String(o.name || 'file'),
+        name: decodeAttachmentNameSafe(o.name),
         storedName: String(o.storedName || ''),
         size: Number(o.size || 0),
         mimeType: String(o.mimeType || ''),
@@ -1087,7 +1111,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         const current = normalizeAttachments(parseJsonArray(existing.attachments));
         const added: ControlAttachmentMeta[] = files.map(f => ({
           id: crypto.randomUUID(),
-          name: f.originalname,
+          name: decodeAttachmentNameSafe(f.originalname),
           storedName: f.filename,
           size: f.size,
           mimeType: f.mimetype || 'application/octet-stream',

@@ -74,6 +74,7 @@ export default function ProjectDetailPage() {
   const [filterEvidence, setFilterEvidence] = useState<'all' | 'has_evidence' | 'no_evidence'>('all');
   const [groupByDomain, setGroupByDomain] = useState(true);
   const [collapsedDomains, setCollapsedDomains] = useState<Set<string>>(new Set());
+  const [expandedControlId, setExpandedControlId] = useState<string | null>(null);
   const [editingControl, setEditingControl] = useState<ProjectControl | null>(null);
   const [showAddControl, setShowAddControl] = useState(false);
   const [addMode, setAddMode] = useState<'library' | 'custom'>('library');
@@ -370,6 +371,10 @@ export default function ProjectDetailPage() {
 
   const expandAllDomains = () => setCollapsedDomains(new Set());
   const collapseAllDomains = () => setCollapsedDomains(new Set(allDomainKeys));
+
+  const toggleControlDetails = (controlId: string) => {
+    setExpandedControlId(current => current === controlId ? null : controlId);
+  };
 
   type EvidencePickerOption = {
     value: string;
@@ -989,7 +994,20 @@ export default function ProjectDetailPage() {
                                 <td className="py-2 px-3 font-mono text-xs">{c.controlCode || '—'}</td>
                                 <td className="py-2 px-3 font-medium text-gray-900 max-w-xs">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="truncate">{controlLabel(c)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleControlDetails(c.id)}
+                                      className={`text-left ${expandedControlId === c.id ? 'whitespace-normal break-words' : 'truncate'}`}
+                                      title={t('projects.expandControl')}
+                                    >
+                                      {controlLabel(c)}
+                                    </button>
+                                    {expandedControlId === c.id && (
+                                      <div className="mt-1 space-y-1 text-xs text-gray-500 whitespace-normal break-words">
+                                        {c.description && <p>{c.description}</p>}
+                                        {c.organizationDescription && <p>{c.organizationDescription}</p>}
+                                      </div>
+                                    )}
                                     {c.mitigation?.enabled && (
                                       <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">MA</span>
                                     )}
@@ -1037,7 +1055,20 @@ export default function ProjectDetailPage() {
                       <td className="py-2 px-3 font-mono text-xs">{c.controlCode || '—'}</td>
                       <td className="py-2 px-3 font-medium text-gray-900 max-w-xs">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="truncate">{controlLabel(c)}</span>
+                          <button
+                            type="button"
+                            onClick={() => toggleControlDetails(c.id)}
+                            className={`text-left ${expandedControlId === c.id ? 'whitespace-normal break-words' : 'truncate'}`}
+                            title={t('projects.expandControl')}
+                          >
+                            {controlLabel(c)}
+                          </button>
+                          {expandedControlId === c.id && (
+                            <div className="mt-1 space-y-1 text-xs text-gray-500 whitespace-normal break-words">
+                              {c.description && <p>{c.description}</p>}
+                              {c.organizationDescription && <p>{c.organizationDescription}</p>}
+                            </div>
+                          )}
                           {c.mitigation?.enabled && (
                             <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">MA</span>
                           )}

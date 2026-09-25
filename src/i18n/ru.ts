@@ -474,6 +474,7 @@ export default {
     notFound: 'Проект не найден',
     loadFailed: 'Не удалось загрузить проекты с сервера',
     type: 'Тип',
+    expandControl: 'Показать полный текст контроля',
     company: 'Компания',
     title_: 'Название проекта',
     startDate: 'Дата начала',

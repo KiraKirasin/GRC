@@ -33,8 +33,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-neutral-30 p-8">
         <div className="text-center mb-8">
           <img
-            src="https://novapay.ua/wp-content/uploads/2023/11/novapay-new.svg"
-            alt="NovaPay"
+            src="/grc-logo.svg"
+            alt="GRC"
             className="h-8 mx-auto mb-4"
           />
           <h1 className="text-2xl font-bold text-gray-900">{t('auth.title')}</h1>

@@ -473,6 +473,7 @@ export default {
     notFound: 'Project not found',
     loadFailed: 'Failed to load projects from server',
     type: 'Type',
+    expandControl: 'Show full control text',
     company: 'Company',
     title_: 'Project Title',
     startDate: 'Start Date',

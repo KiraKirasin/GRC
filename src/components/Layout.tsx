@@ -50,10 +50,10 @@ export default function Layout() {
       <aside className="w-56 shrink-0 bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
         {/* Logo */}
         <div className="px-4 py-4 border-b border-gray-100">
-          <a href="https://novapay.ua" target="_blank" rel="noopener noreferrer">
+          <a href="/" aria-label="GRC home">
             <img
-              src="https://novapay.ua/wp-content/uploads/2023/11/novapay-new.svg"
-              alt="NovaPay"
+              src="/grc-logo.svg"
+              alt="GRC"
               className="h-7 w-auto"
             />
           </a>
