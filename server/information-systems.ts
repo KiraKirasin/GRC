@@ -7,6 +7,7 @@ import {
   roleForCompany,
 } from './auth/permissions.js';
 import { auditFromRequest, computeChanges } from './audit.js';
+import { notifySystemUpdateAssigned, resolveUserEmail } from './email/notifications.js';
 import {
   IS_PLACEMENTS,
   IS_SYSTEM_TYPE_KEYS,
@@ -247,6 +248,19 @@ export function registerInformationSystemRoutes(app: Express, prisma: PrismaClie
         where: { id: existing.id },
         data,
       });
+
+      if (data.supportOwner !== undefined && data.supportOwner !== existing.supportOwner && updated.supportOwner) {
+        const owner = await resolveUserEmail(prisma, updated.supportOwner);
+        if (owner) {
+          void notifySystemUpdateAssigned({
+            prisma,
+            toEmail: owner.email,
+            toName: owner.name,
+            systemName: updated.name,
+            systemId: updated.id,
+          }).catch((err) => console.error('[email] system update assignment failed', err));
+        }
+      }
 
       await auditFromRequest(prisma, req, {
         category: 'data',

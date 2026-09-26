@@ -25,6 +25,22 @@ model User {
   revokedTokens RevokedToken[]
 }
 
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  process   String
+  locale    String   @default("uk")
+  name      String
+  subject   String
+  bodyText  String
+  bodyHtml  String   @default("")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([process, locale])
+  @@index([process])
+}
+
 model PasswordResetToken {
   id        String   @id @default(cuid())
   userId    String

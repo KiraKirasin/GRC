@@ -25,6 +25,7 @@ const ADMIN_NAV_ITEMS = [
   { to: '/audit-logs', label: 'nav.auditLogs', icon: '📋', permission: 'audit:read' as const },
   { to: '/users', label: 'nav.users', icon: '👥', permission: 'users:manage' as const },
   { to: '/integrations', label: 'nav.integrations', icon: '🔗', permission: 'users:manage' as const },
+  { to: '/email-templates', label: 'nav.emailTemplates', icon: '✉️', permission: 'users:manage' as const },
 ] as const;
 
 export default function Layout() {

@@ -27,6 +27,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import SystemsRegistryPage from './pages/SystemsRegistryPage';
 import AdminImportPage from './pages/AdminImportPage';
+import EmailTemplatesPage from './pages/EmailTemplatesPage';
 
 function AppProviders() {
   return (
@@ -62,6 +63,7 @@ export default function App() {
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
+                <Route path="/email-templates" element={<EmailTemplatesPage />} />
                 <Route path="/copilot" element={<CopilotPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />

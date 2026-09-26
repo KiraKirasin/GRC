@@ -13,6 +13,7 @@ export default {
     documents: 'Документи',
     roadmap: 'Дорожня карта',
     integrations: 'Інтеграції',
+    emailTemplates: 'Шаблони email',
     evidenceDatabase: 'База доказів',
     copilot: 'CISO Copilot',
     projects: 'Проєкти',
@@ -804,5 +805,13 @@ export default {
     uploadFile: 'Завантажити файл',
     result: 'Створено {{created}}, оновлено {{updated}}, пропущено {{skipped}}.',
     failed: 'Імпорт не вдався',
+  },
+  emailTemplates: {
+    title: 'Шаблони email',
+    description: 'Керуйте локалізованими шаблонами автоматичних сповіщень.',
+    subject: 'Тема', bodyText: 'Текст листа', bodyHtml: 'HTML листа',
+    variables: 'Використовуйте змінні {{toName}}, {{taskTitle}}, {{projectUrl}}, {{systemName}} і {{loginUrl}}.',
+    enabled: 'Увімкнено', disabled: 'Вимкнено', saved: 'Шаблон збережено.',
+    loadFailed: 'Не вдалося завантажити шаблони email.', saveFailed: 'Не вдалося зберегти шаблон email.',
   },
 };

@@ -14,6 +14,7 @@ export default {
     documents: 'Документы',
     roadmap: 'Дорожная карта',
     integrations: 'Интеграции',
+    emailTemplates: 'Шаблоны email',
     evidenceDatabase: 'База доказательств',
     copilot: 'CISO Copilot',
     projects: 'Проекты',
@@ -879,5 +880,13 @@ export default {
     uploadFile: 'Загрузить файл',
     result: 'Создано {{created}}, обновлено {{updated}}, пропущено {{skipped}}.',
     failed: 'Импорт не удался',
+  },
+  emailTemplates: {
+    title: 'Шаблоны email',
+    description: 'Управление локализованными шаблонами автоматических уведомлений.',
+    subject: 'Тема', bodyText: 'Текст письма', bodyHtml: 'HTML письма',
+    variables: 'Используйте переменные {{toName}}, {{taskTitle}}, {{projectUrl}}, {{systemName}} и {{loginUrl}}.',
+    enabled: 'Включён', disabled: 'Выключен', saved: 'Шаблон сохранён.',
+    loadFailed: 'Не удалось загрузить шаблоны email.', saveFailed: 'Не удалось сохранить шаблон email.',
   },
 };

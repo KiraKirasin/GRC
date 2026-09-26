@@ -13,6 +13,7 @@ export default {
     documents: 'Documents',
     roadmap: 'Roadmap',
     integrations: 'Integrations',
+    emailTemplates: 'Email templates',
     evidenceDatabase: 'Evidence DB',
     copilot: 'CISO Copilot',
     projects: 'Projects',
@@ -878,5 +879,13 @@ export default {
     uploadFile: 'Upload file',
     result: 'Created {{created}}, updated {{updated}}, skipped {{skipped}}.',
     failed: 'Import failed',
+  },
+  emailTemplates: {
+    title: 'Email templates',
+    description: 'Manage localized templates used by automatic notifications.',
+    subject: 'Subject', bodyText: 'Plain text body', bodyHtml: 'HTML body',
+    variables: 'Use placeholders such as {{toName}}, {{taskTitle}}, {{projectUrl}}, {{systemName}} and {{loginUrl}}.',
+    enabled: 'Enabled', disabled: 'Disabled', saved: 'Template saved.',
+    loadFailed: 'Failed to load email templates.', saveFailed: 'Failed to save email template.',
   },
 };

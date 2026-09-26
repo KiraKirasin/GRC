@@ -19,6 +19,7 @@ import { registerAdminImportRoutes } from './admin-import.js';
 import { backfillMissingSystemCodes } from './is-registry-codes.js';
 import { actsAsControlOwner, userOwnsControl } from './auth/ownership.js';
 import { roleForCompany } from './auth/permissions.js';
+import { registerEmailTemplateRoutes } from './email/template-routes.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
@@ -37,6 +38,7 @@ app.use(createAuthenticateUnlessPublic(prisma));
 
 registerAuthRoutes(app, prisma);
 registerAuditRoutes(app, prisma);
+registerEmailTemplateRoutes(app, prisma);
 
 function parseJsonArray<T>(value: string, fallback: T[] = []): T[] {
   try {

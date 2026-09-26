@@ -39,6 +39,8 @@ export const PERMISSIONS = {
   'systems-registry:write': ['admin', 'app_manager'],
   'systems-registry:link': ['admin', 'app_manager', 'approver', 'auditor', 'implementer', 'control_owner'],
   'users:manage': ['admin'],
+  'email-templates:read': ['admin'],
+  'email-templates:write': ['admin'],
   'audit:read': ['admin', 'auditor'],
   'copilot:use': ['admin'],
 } as const satisfies Record<string, readonly UserRole[]>;

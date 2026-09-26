@@ -524,6 +524,7 @@ export function registerAuthRoutes(app: Express, prisma: PrismaClient) {
       });
 
       void notifyUserCreated({
+        prisma,
         toEmail: user.email,
         toName: user.name,
         role,

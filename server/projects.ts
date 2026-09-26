@@ -26,6 +26,7 @@ import {
   findApproverEmails,
   notifyApprovalRequested,
   notifyControlAssigned,
+  notifyTaskAssigned,
   resolveUserEmail,
 } from './email/notifications.js';
 
@@ -490,6 +491,29 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
       const project = await prisma.project.update({ where: { id: req.params.id }, data });
       const count = await prisma.projectControl.count({ where: { projectId: project.id } });
 
+      if (body.tasks !== undefined) {
+        const previousTasks = JSON.parse(existing.tasks || '[]') as Array<Record<string, unknown>>;
+        const nextTasks = Array.isArray(body.tasks) ? body.tasks as Array<Record<string, unknown>> : [];
+        const previousById = new Map(previousTasks.map(task => [String(task.id || ''), task]));
+        for (const task of nextTasks) {
+          const assignee = String(task.assignee || '').trim();
+          const old = previousById.get(String(task.id || ''));
+          if (!assignee || old?.assignee === assignee) continue;
+          const resolved = await resolveUserEmail(prisma, assignee);
+          if (resolved) {
+            void notifyTaskAssigned({
+              prisma,
+              toEmail: resolved.email,
+              toName: resolved.name,
+              taskTitle: String(task.title || 'Task'),
+              taskDescription: String(task.description || ''),
+              dueDate: String(task.dueDate || ''),
+              taskUrl: `${process.env.APP_ORIGIN || 'http://localhost:5200'}/projects/${project.id}`,
+            }).catch((err) => console.error('[email] task assignment failed', err));
+          }
+        }
+      }
+
       const fields = ['title', 'company', 'type', 'framework', 'status', 'description', 'owner', 'startDate', 'targetDate', 'completedAt', 'progress', 'team', 'scope', 'tasks', 'reviews', 'findings'];
       await auditFromRequest(prisma, req, {
         category: 'data',
@@ -893,6 +917,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         const resolved = await resolveUserEmail(prisma, owner);
         if (!resolved) continue;
         void notifyControlAssigned({
+          prisma,
           toEmail: resolved.email,
           toName: resolved.name,
           controlCode: String(c.controlCode || ''),
@@ -1072,6 +1097,7 @@ export function registerProjectRoutes(app: Express, prisma: PrismaClient) {
         const resolved = await resolveUserEmail(prisma, String(body.owner));
         if (resolved) {
           void notifyControlAssigned({
+            prisma,
             toEmail: resolved.email,
             toName: resolved.name,
             controlCode: updated.controlCode || '',
