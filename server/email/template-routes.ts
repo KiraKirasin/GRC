@@ -32,6 +32,45 @@ export function registerEmailTemplateRoutes(app: Express, prisma: PrismaClient) 
     }
   });
 
+  app.post('/api/email-templates', requirePermission('email-templates:write'), async (req, res) => {
+    try {
+      const body = req.body || {};
+      const process = String(body.process || '').trim();
+      const locale = String(body.locale || 'uk').trim().toLowerCase();
+      const name = String(body.name || '').trim();
+      if (!process) return res.status(400).json({ error: 'Process is required' });
+      if (!['uk', 'en', 'ru'].includes(locale)) {
+        return res.status(400).json({ error: 'Locale must be uk, en, or ru' });
+      }
+      if (!name) return res.status(400).json({ error: 'Name is required' });
+
+      const created = await prisma.emailTemplate.create({
+        data: {
+          process,
+          locale,
+          name,
+          subject: String(body.subject || '').trim() || name,
+          bodyText: String(body.bodyText || ''),
+          bodyHtml: String(body.bodyHtml || ''),
+          enabled: body.enabled === undefined ? true : Boolean(body.enabled),
+        },
+      });
+      res.status(201).json({
+        ...created,
+        processLabel: EMAIL_PROCESSES.includes(created.process as typeof EMAIL_PROCESSES[number])
+          ? processLabel(created.process as typeof EMAIL_PROCESSES[number])
+          : created.process,
+      });
+    } catch (error: unknown) {
+      console.error(error);
+      const code = String((error as { code?: string })?.code || '');
+      if (code === 'P2002') {
+        return res.status(409).json({ error: 'A template for this process and language already exists' });
+      }
+      res.status(500).json({ error: 'Failed to create email template' });
+    }
+  });
+
   app.patch('/api/email-templates/:id', requirePermission('email-templates:write'), async (req, res) => {
     try {
       const body = req.body || {};
