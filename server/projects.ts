@@ -79,10 +79,10 @@ function decodeAttachmentName(value: unknown): string {
   })) return name;
   // Busboy can expose UTF-8 multipart filenames as Latin-1 mojibake (for example, "Ð..."),
   // while correctly decoded filenames already contain Cyrillic characters.
-  if (/[00-ff]/u.test(name)) return name;
+  if (/[\u0400-\u04ff]/u.test(name)) return name;
   const decoded = Buffer.from(name, 'latin1').toString('utf8');
   if (decoded.includes('\uFFFD')) return name;
-  return decoded.includes('ffd') ? name : decoded;
+  return decoded.includes('\uFFFD') ? name : decoded;
 }
 
 function normalizeAttachments(raw: unknown[]): ControlAttachmentMeta[] {

@@ -74,7 +74,7 @@ jobs:
   # ---------------------------------------------------------------------------
   quality:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -114,7 +114,7 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e-ci:
     name: E2E (Playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: quality
     timeout-minutes: 25
 
@@ -167,9 +167,15 @@ jobs:
           APP_ORIGIN: http://127.0.0.1:3100
         run: |
           set -euo pipefail
-          npx tsx server/index.ts &
+          SERVER_LOG="${RUNNER_TEMP}/e2e-api.log"
+          npx tsx server/index.ts >"${SERVER_LOG}" 2>&1 &
           SERVER_PID=$!
-          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          cleanup() {
+            if kill -0 "$SERVER_PID" 2>/dev/null; then
+              kill "$SERVER_PID" 2>/dev/null || true
+              wait "$SERVER_PID" 2>/dev/null || true
+            fi
+          }
           trap cleanup EXIT
 
           for i in $(seq 1 60); do
@@ -179,11 +185,15 @@ jobs:
             fi
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               echo "API process exited early"
+              echo "--- API startup log ---"
+              cat "${SERVER_LOG}" || true
               exit 1
             fi
             sleep 1
             if [ "$i" -eq 60 ]; then
               echo "Timed out waiting for API health"
+              echo "--- API startup log ---"
+              cat "${SERVER_LOG}" || true
               exit 1
             fi
           done
@@ -192,12 +202,13 @@ jobs:
 
       - name: Upload E2E report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-ci-${{ github.sha }}
           path: |
             playwright-report/
             test-results/
+            ${{ runner.temp }}/e2e-api.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -207,7 +218,7 @@ jobs:
   # ---------------------------------------------------------------------------
   opengrep:
     name: OpenGrep SAST
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: quality
     # Escape hatch: re-evaluate after quality even when quality failed.
     if: ${{ always() && !cancelled() }}
@@ -219,7 +230,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install OpenGrep
-        # Pin a release binary for reproducible CI (manylinux x86_64 on ubuntu-latest).
+        # Pin a release binary for reproducible CI (manylinux x86_64 on GitHub-hosted Linux).
         # Bump OPENGREP_VERSION deliberately when upgrading.
         env:
           OPENGREP_VERSION: v1.25.0
@@ -263,7 +274,7 @@ jobs:
   # ---------------------------------------------------------------------------
   image:
     name: Build, SBOM and container scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [quality, e2e-ci, opengrep]
     if: ${{ always() && !cancelled() }}
     timeout-minutes: 30
@@ -305,7 +316,7 @@ jobs:
           upload-artifact: false
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.sha }}
           path: sbom.cyclonedx.json
@@ -346,7 +357,7 @@ jobs:
           sha256sum grc-app-image.tar.gz > grc-app-image.tar.gz.sha256
 
       - name: Upload deployment artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: grc-app-image-${{ github.sha }}
           path: |
@@ -360,7 +371,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy exact image to GCP VM
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: image
     # Escape hatch + hard require: never Skipped when image fails transitively,
     # but only promote when the image job actually uploaded the artifact.
@@ -392,7 +403,7 @@ jobs:
 
       - name: Download scanned image
         if: steps.promote.outputs.should_deploy == 'true'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: grc-app-image-${{ github.sha }}
           path: deployment-artifact
@@ -562,7 +573,7 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e-prod:
     name: Post-deployment E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: deploy
     if: ${{ always() && !cancelled() && needs.deploy.result == 'success' }}
     continue-on-error: true
@@ -611,7 +622,7 @@ jobs:
 
       - name: Upload E2E report
         if: ${{ always() && steps.e2e_gate.outputs.should_run == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-prod-${{ github.sha }}
           path: |
