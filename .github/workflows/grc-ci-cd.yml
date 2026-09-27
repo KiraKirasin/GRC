@@ -192,7 +192,7 @@ jobs:
 
       - name: Upload E2E report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-ci-${{ github.sha }}
           path: |
@@ -305,7 +305,7 @@ jobs:
           upload-artifact: false
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.sha }}
           path: sbom.cyclonedx.json
@@ -346,7 +346,7 @@ jobs:
           sha256sum grc-app-image.tar.gz > grc-app-image.tar.gz.sha256
 
       - name: Upload deployment artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: grc-app-image-${{ github.sha }}
           path: |
@@ -392,7 +392,7 @@ jobs:
 
       - name: Download scanned image
         if: steps.promote.outputs.should_deploy == 'true'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: grc-app-image-${{ github.sha }}
           path: deployment-artifact
@@ -611,7 +611,7 @@ jobs:
 
       - name: Upload E2E report
         if: ${{ always() && steps.e2e_gate.outputs.should_run == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-prod-${{ github.sha }}
           path: |
