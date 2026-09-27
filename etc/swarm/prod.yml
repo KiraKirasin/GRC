@@ -15,6 +15,7 @@ services:
     image: ${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA}
     deploy:
       labels:
+        - "traefik.enable=true"
         - "traefik.http.services.${STACK}-api.loadbalancer.server.port=3001"
         - "traefik.http.routers.${STACK}-api.rule=Host(`grc.forpost.space`)"
       mode: replicated
