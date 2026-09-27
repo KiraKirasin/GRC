@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 220" role="img" aria-labelledby="title desc">
+  <title id="title">GRC</title>
+  <desc id="desc">GRC compliance platform logo.</desc>
+  <path d="M34 24h112l48 48v96l-104 48-104-48V72z" fill="#690DD3"/>
+  <path d="M90 24h56l48 48H90z" fill="#690DD3"/>
+  <text x="246" y="142" fill="#690DD3" font-family="Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="-6">GRC</text>
+  <rect x="250" y="166" width="356" height="7" rx="3.5" fill="#690DD3"/>
+  <text x="250" y="204" fill="#690DD3" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="4">GOVERNANCE RISK COMPLIANCE</text>
+</svg>

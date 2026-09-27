@@ -10,6 +10,7 @@ import {
   compareDomainsByStandard,
   frameworksFromControls,
 } from '../types';
+import { localizedControlText } from '../lib/localizedControl';
 
 const emptyForm: Omit<GRCControl, 'id' | 'createdAt' | 'updatedAt'> = {
   title: '', description: '', framework: '', category: '', status: 'pending', owner: '',
@@ -28,7 +29,7 @@ function domainKey(category: string) {
 }
 
 export default function ControlsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { controls, addControl, updateControl, deleteControl } = useCompliance();
   const canWrite = usePermission('controls:write');
   const canDelete = usePermission('controls:delete');
@@ -38,6 +39,9 @@ export default function ControlsPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterFramework, setFilterFramework] = useState('');
+
+  const locTitle = (c: { title: string }) => localizedControlText(c.title, i18n.language);
+  const locDesc = (c: { description: string }) => localizedControlText(c.description, i18n.language);
   const [filterDomain, setFilterDomain] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [groupByDomain, setGroupByDomain] = useState(true);
@@ -62,6 +66,8 @@ export default function ControlsPage() {
     const q = search.toLowerCase();
     return controls.filter(c => {
       const mSearch = !search ||
+        locTitle(c).toLowerCase().includes(q) ||
+        locDesc(c).toLowerCase().includes(q) ||
         c.title.toLowerCase().includes(q) ||
         c.owner.toLowerCase().includes(q) ||
         (c.controlCode || '').toLowerCase().includes(q) ||
@@ -203,7 +209,7 @@ export default function ControlsPage() {
   const renderControlRow = (c: GRCControl) => (
     <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
       <td className="py-3 px-4 text-gray-500 font-mono text-xs whitespace-nowrap">{c.controlCode || '—'}</td>
-      <td className="py-3 px-4 text-gray-900 max-w-xs truncate font-medium">{c.title}</td>
+      <td className="py-3 px-4 text-gray-900 max-w-xs truncate font-medium">{locTitle(c)}</td>
       <td className="py-3 px-4 text-gray-600">{c.owner}</td>
       <td className="py-3 px-4 text-gray-500 text-xs">{c.evidence.length > 0 ? c.evidence.length : '—'}</td>
       <td className="py-3 px-4 text-gray-500 text-xs">{c.lastReviewed}</td>
@@ -437,7 +443,7 @@ export default function ControlsPage() {
               {flatControls.map(c => (
                 <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4 text-gray-500 font-mono text-xs whitespace-nowrap">{c.controlCode || '—'}</td>
-                  <td className="py-3 px-4 text-gray-900 max-w-xs truncate font-medium">{c.title}</td>
+                  <td className="py-3 px-4 text-gray-900 max-w-xs truncate font-medium">{locTitle(c)}</td>
                   <td className="py-3 px-4 text-gray-600 text-xs">{c.framework}</td>
                   <td className="py-3 px-4 text-xs text-gray-500 max-w-[160px] truncate">{domainLabel(domainKey(c.category))}</td>
                   <td className="py-3 px-4 text-gray-600">{c.owner}</td>

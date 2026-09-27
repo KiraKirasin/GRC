@@ -5,6 +5,7 @@ import { useCompliance } from '../context/ComplianceContext';
 import { useProjects } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { COMPANIES, CompanyName } from '../types';
+import { localeForLang } from '../lib/localizedControl';
 
 const CROSS_COMPANY = '__cross_company__' as const;
 
@@ -297,7 +298,7 @@ export default function RoadmapPage() {
                 {section.months.map(([month, monthTasks]) => (
                   <div key={month}>
                     <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                      {month === 'no-date' ? t('roadmap.noDueDate') : formatMonthLabel(month, i18n.language)}
+                      {month === 'no-date' ? t('roadmap.noDueDate') : formatMonthLabel(month, localeForLang(i18n.language))}
                     </h4>
                     <div className="space-y-2">
                       {monthTasks.map(task => (

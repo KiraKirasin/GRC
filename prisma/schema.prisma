@@ -17,9 +17,28 @@ model User {
   /** JSON map of company → role, e.g. {"NovaPay LLC":"admin","Novapay Moldova":"auditor"} */
   companies    String   @default("{}")
   active       Boolean  @default(true)
+  /** Bumped on password change / forced logout-all — must match JWT `tv` claim */
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   resetTokens  PasswordResetToken[]
+  revokedTokens RevokedToken[]
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  process   String
+  locale    String   @default("uk")
+  name      String
+  subject   String
+  bodyText  String
+  bodyHtml  String   @default("")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([process, locale])
+  @@index([process])
 }
 
 model PasswordResetToken {
@@ -31,6 +50,19 @@ model PasswordResetToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime @default(now())
+}
+
+/** JWT denylist by `jti` — used for logout and early session revoke */
+model RevokedToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([userId])
 }
 
 // --- Security & activity audit trail ---
@@ -140,6 +172,7 @@ model GRCControl {
 
 model Policy {
   id           String   @id @default(cuid())
+  company      String   @default("NovaPay LLC")
   title        String
   version      String   @default("1.0")
   status       String   @default("draft")
@@ -157,6 +190,7 @@ model Policy {
 
 model GRCDocument {
   id         String   @id @default(cuid())
+  company    String   @default("NovaPay LLC")
   title      String
   type       String   @default("other")
   framework  String   @default("")
@@ -233,10 +267,64 @@ model Project {
   targetDate  String   @default("")
   completedAt String   @default("")
   progress    Int      @default(0)
+  archived    Boolean  @default(false)
+  archivedAt  String   @default("")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   projectControls ProjectControl[]
+  projectSystems  ProjectSystem[]
+  projectAssets   ProjectAsset[]
+}
+
+// Inventory of systems in project scope (for control ↔ system multi-select)
+model ProjectSystem {
+  id               String   @id @default(cuid())
+  projectId        String
+  /// Optional link to company-wide InformationSystem registry entry
+  registrySystemId String   @default("")
+  name             String
+  purpose          String   @default("")
+  owner            String   @default("")
+  serverLocation   String   @default("")
+  techSpecs        String   @default("")
+  os               String   @default("")
+  failover         String   @default("")
+  security         String   @default("")
+  criticality      String   @default("medium")
+  equipment        String   @default("")
+  info             String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([registrySystemId])
+  @@unique([projectId, name])
+}
+
+// Inventory of assets in project scope (for control ↔ asset multi-select with evidence)
+model ProjectAsset {
+  id               String   @id @default(cuid())
+  projectId        String
+  /// Optional link to company-wide InformationSystem registry entry
+  registrySystemId String   @default("")
+  name             String
+  purpose          String   @default("")
+  supportOwner     String   @default("")
+  criticality      String   @default("medium")
+  vendor           String   @default("")
+  consumers        String   @default("")
+  info             String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([registrySystemId])
+  @@unique([projectId, name])
 }
 
 // Project-scoped copy of Controls Repository (master data is never mutated)
@@ -247,6 +335,7 @@ model ProjectControl {
   controlCode     String   @default("")
   title           String
   description     String   @default("")
+  organizationDescription String @default("")
   framework       String   @default("")
   category        String   @default("")
   status          String   @default("pending")
@@ -259,6 +348,14 @@ model ProjectControl {
   accessList      String   @default("[]")
   lastReviewed    String   @default("")
   mitigation      String   @default("{}")
+  /// JSON string[] of ProjectSystem.id — systems this control applies to
+  systemIds       String   @default("[]")
+  /// JSON string[] of ProjectAsset.id — assets this control applies to
+  assetIds        String   @default("[]")
+  /// JSON map assetId → { evidence, evidenceLinks } — per-asset evidence on this control
+  assetEvidence   String   @default("{}")
+  /// JSON map systemId → { evidence, evidenceLinks } — per-system evidence on this control
+  systemEvidence  String   @default("{}")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -266,4 +363,36 @@ model ProjectControl {
 
   @@index([projectId])
   @@index([framework])
+}
+
+/// Company-wide Information Systems Registry (admin / app_manager)
+model InformationSystem {
+  id             String   @id @default(cuid())
+  /// Human-readable ID, e.g. infr-001 (prefix = system type)
+  systemCode     String   @unique @default("")
+  /// Type prefix: infr, app, sec, net, db, data, mon, int
+  systemType     String   @default("app")
+  /// Hosting model: cloud, datacenter, on_prem, hybrid
+  placement      String   @default("")
+  company        String
+  name           String
+  purpose        String   @default("")
+  supportOwner   String   @default("")
+  appServers     String   @default("")
+  osContainer    String   @default("")
+  dbServers      String   @default("")
+  techSpecs      String   @default("")
+  datacenter     String   @default("")
+  failover       String   @default("")
+  security       String   @default("")
+  criticality    String   @default("medium")
+  equipment      String   @default("")
+  info           String   @default("")
+  vendor         String   @default("")
+  consumers      String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([company])
+  @@unique([company, name])
 }

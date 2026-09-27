@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Project" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Project" ADD COLUMN "archivedAt" TEXT NOT NULL DEFAULT '';

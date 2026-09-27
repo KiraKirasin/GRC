@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { requirePermission } from './auth/middleware.js';
 import { auditFromRequest, computeChanges } from './audit.js';
+import rateLimit from 'express-rate-limit';
+import { attachmentWriteLimiter } from './rateLimit.js';
 
 const UPLOAD_ROOT = path.resolve(
   process.env.POLICY_UPLOAD_DIR ||
@@ -70,6 +72,7 @@ function policyDir(policyId: string) {
 
 function serializePolicy(policy: {
   id: string;
+  company: string;
   title: string;
   version: string;
   status: string;
@@ -84,6 +87,7 @@ function serializePolicy(policy: {
 }) {
   return {
     id: policy.id,
+    company: String(policy.company || 'NovaPay LLC'),
     title: policy.title,
     version: policy.version,
     status: policy.status,
@@ -129,6 +133,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
       const body = req.body || {};
       const created = await prisma.policy.create({
         data: {
+          company: String(body.company || 'NovaPay LLC'),
           title: String(body.title || '').trim() || 'Untitled policy',
           version: String(body.version || '1.0'),
           status: String(body.status || 'draft'),
@@ -173,7 +178,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
       const body = req.body || {};
       const data: Record<string, string> = {};
       for (const key of [
-        'title', 'version', 'status', 'framework', 'owner', 'description', 'lastReviewed',
+        'title', 'version', 'status', 'framework', 'owner', 'description', 'lastReviewed', 'company',
       ] as const) {
         if (body[key] !== undefined) data[key] = String(body[key] ?? '');
       }
@@ -211,7 +216,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
     }
   });
 
-  app.delete('/api/policies/:id', requirePermission('policies:write'), async (req, res) => {
+  app.delete('/api/policies/:id', requirePermission('policies:write'), attachmentWriteLimiter, async (req, res) => {
     try {
       const existing = await prisma.policy.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Policy not found' });
@@ -242,6 +247,7 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
   app.post(
     '/api/policies/:id/attachments',
     requirePermission('policies:write'),
+    attachmentWriteLimiter,
     upload.array('files', 10),
     async (req, res) => {
       try {
@@ -283,33 +289,44 @@ export function registerPolicyRoutes(app: Express, prisma: PrismaClient) {
     },
   );
 
-  app.get('/api/policies/:id/attachments/:attachmentId', async (req, res) => {
-    try {
-      const existing = await prisma.policy.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: 'Policy not found' });
+  app.get(
+    '/api/policies/:id/attachments/:attachmentId',
+    rateLimit({
+      windowMs: 60_000,
+      max: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Too many attachment downloads. Please try again later.' },
+    }),
+    async (req, res) => {
+      try {
+        const existing = await prisma.policy.findUnique({ where: { id: req.params.id } });
+        if (!existing) return res.status(404).json({ error: 'Policy not found' });
 
-      const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
-      const att = attachments.find((a) => a.id === req.params.attachmentId);
-      if (!att || !att.storedName) return res.status(404).json({ error: 'Attachment not found' });
+        const attachments = normalizeAttachments(parseJsonArray(existing.attachments));
+        const att = attachments.find((a) => a.id === req.params.attachmentId);
+        if (!att || !att.storedName) return res.status(404).json({ error: 'Attachment not found' });
 
-      const filePath = path.join(policyDir(existing.id), att.storedName);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
+        const filePath = path.join(policyDir(existing.id), att.storedName);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
 
-      res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
-      res.setHeader(
-        'Content-Disposition',
-        `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${encodeURIComponent(att.name)}"`,
-      );
-      fs.createReadStream(filePath).pipe(res);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Failed to download attachment' });
-    }
-  });
+        res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+        res.setHeader(
+          'Content-Disposition',
+          `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${encodeURIComponent(att.name)}"`,
+        );
+        fs.createReadStream(filePath).pipe(res);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to download attachment' });
+      }
+    },
+  );
 
   app.delete(
     '/api/policies/:id/attachments/:attachmentId',
     requirePermission('policies:write'),
+    attachmentWriteLimiter,
     async (req, res) => {
       try {
         const existing = await prisma.policy.findUnique({ where: { id: req.params.id } });

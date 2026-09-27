@@ -8,6 +8,8 @@ import { APP_VERSION } from '../version';
 const NAV_ITEMS = [
   { to: '/', label: 'nav.dashboard', end: true, icon: '📊' },
   { to: '/projects', label: 'nav.projects', icon: '📁' },
+  { to: '/systems-registry', label: 'nav.systemsRegistry', icon: '🖥️', permission: 'systems-registry:read' as const },
+  { to: '/reports', label: 'nav.reports', icon: '📑' },
   { to: '/risks', label: 'nav.riskRegister', icon: '⚠️' },
   { to: '/tasks', label: 'nav.tasks', icon: '✅' },
   { to: '/controls', label: 'nav.controls', icon: '🛡️' },
@@ -15,13 +17,15 @@ const NAV_ITEMS = [
   { to: '/policies', label: 'nav.policies', icon: '📜' },
   { to: '/documents', label: 'nav.documents', icon: '📄' },
   { to: '/roadmap', label: 'nav.roadmap', icon: '🗺️' },
-  { to: '/copilot', label: 'nav.copilot', icon: '🤖' },
 ] as const;
 
 const ADMIN_NAV_ITEMS = [
+  { to: '/copilot', label: 'nav.copilot', icon: '🤖', permission: 'copilot:use' as const },
+  { to: '/admin-import', label: 'nav.adminImport', icon: '📥', permission: 'users:manage' as const },
   { to: '/audit-logs', label: 'nav.auditLogs', icon: '📋', permission: 'audit:read' as const },
   { to: '/users', label: 'nav.users', icon: '👥', permission: 'users:manage' as const },
   { to: '/integrations', label: 'nav.integrations', icon: '🔗', permission: 'users:manage' as const },
+  { to: '/email-templates', label: 'nav.emailTemplates', icon: '✉️', permission: 'users:manage' as const },
 ] as const;
 
 export default function Layout() {
@@ -29,8 +33,10 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const canManageUsers = usePermission('users:manage');
   const canReadAudit = usePermission('audit:read');
+  const canUseCopilot = usePermission('copilot:use');
+  const canSystemsRegistry = usePermission('systems-registry:read');
   const isAdmin = user?.role === 'admin' || canManageUsers;
-  const showAdmin = isAdmin || canReadAudit;
+  const showAdmin = isAdmin || canReadAudit || canUseCopilot;
 
   const sideLink = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -45,10 +51,10 @@ export default function Layout() {
       <aside className="w-56 shrink-0 bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
         {/* Logo */}
         <div className="px-4 py-4 border-b border-gray-100">
-          <a href="https://novapay.ua" target="_blank" rel="noopener noreferrer">
+          <a href="/" aria-label="GRC home">
             <img
-              src="https://novapay.ua/wp-content/uploads/2023/11/novapay-new.svg"
-              alt="NovaPay"
+              src="/grc-logo.svg"
+              alt="GRC"
               className="h-7 w-auto"
             />
           </a>
@@ -57,7 +63,10 @@ export default function Layout() {
 
         {/* Main nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter(item =>
+            !('permission' in item) ||
+            (item.permission === 'systems-registry:read' ? canSystemsRegistry : true),
+          ).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -76,6 +85,7 @@ export default function Layout() {
               </div>
               {ADMIN_NAV_ITEMS.filter(item => {
                 if (item.permission === 'audit:read') return canReadAudit || isAdmin;
+                if (item.permission === 'copilot:use') return canUseCopilot;
                 return isAdmin;
               }).map((item) => (
                 <NavLink key={item.to} to={item.to} className={sideLink}>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" role="img" aria-labelledby="title desc">
+  <title id="title">GRC Grid logo</title>
+  <desc id="desc">A geometric GRC monogram with a yellow square accent.</desc>
+  <path d="M78 78h204v92H170v40h112v92H78z" fill="#690DD3"/>
+  <path d="M314 78h78v224h-78zM392 78h86v92h-86zM392 210h86v92h-86z" fill="#690DD3"/>
+  <path d="M514 78h128v92H514zm0 132h128v92H514z" fill="#690DD3"/>
+  <rect x="478" y="78" width="86" height="92" fill="#690DD3"/>
+  <text x="360" y="342" text-anchor="middle" fill="#690DD3" font-family="Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="6">GOVERNANCE RISK COMPLIANCE</text>
+</svg>

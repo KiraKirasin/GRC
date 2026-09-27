@@ -6,23 +6,39 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { registerProjectRoutes } from './projects.js';
 import { registerPolicyRoutes } from './policies.js';
-import { authenticateUnlessPublic } from './auth/middleware.js';
+import { createAuthenticateUnlessPublic } from './auth/middleware.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { requirePermission } from './auth/middleware.js';
 import { registerAuditRoutes } from './audit-routes.js';
 import { auditFromRequest, computeChanges } from './audit.js';
+import { registerCopilotRoutes } from './copilot/routes.js';
+import { registerSystemRoutes } from './systems.js';
+import { registerAssetRoutes } from './assets.js';
+import { registerInformationSystemRoutes } from './information-systems.js';
+import { registerAdminImportRoutes } from './admin-import.js';
+import { backfillMissingSystemCodes } from './is-registry-codes.js';
+import { actsAsControlOwner, userOwnsControl } from './auth/ownership.js';
+import { roleForCompany } from './auth/permissions.js';
+import { registerEmailTemplateRoutes } from './email/template-routes.js';
 
 const PORT = Number(process.env.PORT || 3100);
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL || 'file:./grc.db' });
 const prisma = new PrismaClient({ adapter });
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(authenticateUnlessPublic);
+// Needed so express-rate-limit keys by real client IP behind Caddy/proxy.
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: true,
+  credentials: false,
+  allowedHeaders: ['Authorization', 'Content-Type'],
+}));
+app.use(express.json({ limit: '1mb' }));
+app.use(createAuthenticateUnlessPublic(prisma));
 
 registerAuthRoutes(app, prisma);
 registerAuditRoutes(app, prisma);
+registerEmailTemplateRoutes(app, prisma);
 
 function parseJsonArray<T>(value: string, fallback: T[] = []): T[] {
   try {
@@ -53,10 +69,62 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/controls', async (_req, res) => {
+app.get('/api/controls', async (req, res) => {
   try {
-    const controls = await prisma.gRCControl.findMany({ orderBy: { title: 'asc' } });
-    res.json(controls.map(c => serializeControl(c)));
+    let controls = await prisma.gRCControl.findMany({ orderBy: { title: 'asc' } });
+    if (actsAsControlOwner(req.user)) {
+      controls = controls.filter((c) => userOwnsControl(req.user, c));
+    }
+
+    const controlIds = controls.map(control => control.id);
+    const projectControls = controlIds.length === 0
+      ? []
+      : await prisma.projectControl.findMany({
+        where: { sourceControlId: { in: controlIds } },
+        select: {
+          sourceControlId: true,
+          evidence: true,
+          evidenceLinks: true,
+          attachments: true,
+          owner: true,
+          accessList: true,
+          project: { select: { company: true } },
+        },
+      });
+
+    const projectEvidence = new Map<string, {
+      evidence: string[];
+      evidenceLinks: string[];
+      attachments: string[];
+    }>();
+    for (const projectControl of projectControls) {
+      if (!projectControl.sourceControlId ||
+        roleForCompany(req.user?.companies || {}, projectControl.project.company) === null ||
+        (actsAsControlOwner(req.user) && !userOwnsControl(req.user, projectControl))) {
+        continue;
+      }
+      const current = projectEvidence.get(projectControl.sourceControlId) || {
+        evidence: [],
+        evidenceLinks: [],
+        attachments: [],
+      };
+      current.evidence.push(...parseJsonArray<string>(projectControl.evidence));
+      current.evidenceLinks.push(...parseJsonArray<string>(projectControl.evidenceLinks));
+      current.attachments.push(...parseJsonArray<string>(projectControl.attachments));
+      projectEvidence.set(projectControl.sourceControlId, current);
+    }
+
+    res.json(controls.map(control => {
+      const serialized = serializeControl(control);
+      const additional = projectEvidence.get(control.id);
+      if (!additional) return serialized;
+      return {
+        ...serialized,
+        evidence: [...new Set([...serialized.evidence, ...additional.evidence])],
+        evidenceLinks: [...new Set([...serialized.evidenceLinks, ...additional.evidenceLinks])],
+        attachments: [...new Set([...serialized.attachments, ...additional.attachments])],
+      };
+    }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to load controls' });
@@ -179,6 +247,11 @@ app.delete('/api/controls/:id', requirePermission('controls:delete'), async (req
 
 registerProjectRoutes(app, prisma);
 registerPolicyRoutes(app, prisma);
+registerSystemRoutes(app, prisma);
+registerAssetRoutes(app, prisma);
+registerInformationSystemRoutes(app, prisma);
+registerAdminImportRoutes(app, prisma);
+registerCopilotRoutes(app, prisma);
 
 // Production: serve built SPA from Vite `dist/`
 if (process.env.NODE_ENV === 'production') {
@@ -191,4 +264,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`GRC API listening on http://localhost:${PORT}`);
+  void backfillMissingSystemCodes(prisma).then((n) => {
+    if (n > 0) console.log(`Assigned system IDs to ${n} information system(s).`);
+  }).catch((err) => console.error('IS registry ID backfill failed:', err));
 });

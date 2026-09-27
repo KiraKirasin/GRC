@@ -1,0 +1,43 @@
+stages:
+  - Build
+  - Deploy
+variables:
+  HTTP_PROXY: http://proxy-dn.forpost.space:3128
+  HTTPS_PROXY: http://proxy-dn.forpost.space:3128
+  http_proxy: http://proxy-dn.forpost.space:3128
+  https_proxy: http://proxy-dn.forpost.space:3128
+  no_proxy: localhost,.forpost.local,.forpost.space
+  NO_PROXY: localhost,.forpost.local,.forpost.space
+.deploy: &deploy
+  script:
+    - |-
+      docker stack deploy \
+        --compose-file ./${COMPOSE_FILE} \
+        ${STACK}
+
+Build api:
+  stage: Build
+  script:
+    - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+    - |-
+      docker build \
+        --build-arg "HTTP_PROXY=${HTTP_PROXY}" \
+        --build-arg "HTTPS_PROXY=${HTTPS_PROXY}" \
+        --build-arg "http_proxy=${http_proxy}" \
+        --build-arg "https_proxy=${https_proxy}" \
+        --build-arg "no_proxy=${no_proxy}" \
+        -t ${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA} \
+        -f Dockerfile .
+    - docker push ${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA}
+
+Deploy:
+  <<: *deploy
+  stage: Deploy
+  tags: [ ps-stage ]
+  variables:
+    ENV: production
+    COMPOSE_FILE: etc/swarm/prod.yml
+    STACK: grc
+  only: [ main ]
+  when: manual
+

@@ -1,0 +1,1 @@
+ALTER TABLE "ProjectControl" ADD COLUMN "systemEvidence" TEXT NOT NULL DEFAULT '{}';

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { USER_ROLES } from '../lib/permissions';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -34,8 +33,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-neutral-30 p-8">
         <div className="text-center mb-8">
           <img
-            src="https://novapay.ua/wp-content/uploads/2023/11/novapay-new.svg"
-            alt="NovaPay"
+            src="/grc-logo.svg"
+            alt="GRC"
             className="h-8 mx-auto mb-4"
           />
           <h1 className="text-2xl font-bold text-gray-900">{t('auth.title')}</h1>
@@ -79,25 +78,6 @@ export default function LoginPage() {
             </Link>
           </p>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <p className="text-xs text-gray-500 mb-2">{t('auth.demoAccounts')}</p>
-          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-            {USER_ROLES.map(role => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => {
-                  setEmail(`${role}@novapay.ua`);
-                  setPassword('grc123');
-                }}
-                className="px-2 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-left capitalize"
-              >
-                {role}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

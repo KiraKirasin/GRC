@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "GitLab": {
+      "type": "http",
+      "url": "https://gitlab.novapay.ua/api/v4/mcp",
+      "headers": {
+        "X-Gitlab-Mcp-Server-Tool-Name-Prefix": "gitlab_"
+      }
+    },
+    "SharePoint": {
+      "command": "sharepoint-mcp",
+      "env": {
+        "SHP_ID_APP": "${env:SHP_ID_APP}",
+        "SHP_ID_APP_SECRET": "${env:SHP_ID_APP_SECRET}",
+        "SHP_TENANT_ID": "${env:SHP_TENANT_ID}",
+        "SHP_SITE_URL": "${env:SHP_SITE_URL}",
+        "SHP_API_TYPE": "${env:SHP_API_TYPE}",
+        "SHP_DOC_LIBRARY": "${env:SHP_DOC_LIBRARY}"
+      }
+    }
+  }
+}

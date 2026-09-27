@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 260" role="img" aria-labelledby="title desc">
+  <title id="title">GRC Wordmark logo</title>
+  <desc id="desc">A horizontal GRC wordmark with a blue and yellow shield symbol.</desc>
+  <path d="M72 34h112l48 48v96l-104 48-104-48V82z" fill="#690DD3"/>
+  <path d="M128 34h56l48 48h-104z" fill="#690DD3"/>
+  <path d="M128 103h48v37h-48zM128 169h48v37h-48z" fill="#690DD3"/>
+  <path d="M192 103h40v103h-40z" fill="#690DD3"/>
+  <text x="286" y="164" fill="#690DD3" font-family="Arial, sans-serif" font-size="120" font-weight="800" letter-spacing="-6">GRC</text>
+  <rect x="292" y="191" width="426" height="8" rx="4" fill="#690DD3"/>
+  <text x="292" y="232" fill="#690DD3" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="4">NOVA COMPLIANCE</text>
+</svg>

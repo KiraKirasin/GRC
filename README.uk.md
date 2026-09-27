@@ -196,7 +196,7 @@ CI/CD: [`.github/workflows/grc-ci-cd.yml`](.github/workflows/grc-ci-cd.yml) — 
 ├── src/                 # React frontend (pages, components, contexts)
 ├── server/              # Express API routes
 ├── prisma/              # Schema, migrations, import scripts
-├── e2e/                 # Playwright smoke-тести
+├── e2e/                 # Playwright E2E (CI gate + post-deploy)
 ├── deploy/              # Caddy reverse proxy config
 ├── docs/                # Документація з деплою
 ├── .github/workflows/   # CodeQL + GRC CI/CD

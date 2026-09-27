@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCompliance } from '../context/ComplianceContext';
-import { ControlAttachment, FRAMEWORKS, Policy, PolicyStatus } from '../types';
+import { COMPANIES, ControlAttachment, FRAMEWORKS, Policy, PolicyStatus, type CompanyName } from '../types';
 import { apiFetch } from '../lib/api';
 import { usePermission } from '../context/AuthContext';
 
 const emptyForm = {
+  company: 'NovaPay LLC' as CompanyName,
   title: '',
   version: '1.0',
   status: 'draft' as PolicyStatus,
@@ -49,6 +50,7 @@ export default function PoliciesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [search, setSearch] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -67,8 +69,9 @@ export default function PoliciesPage() {
 
   const filtered = policies.filter((p) => {
     const mSearch = !search || p.title.toLowerCase().includes(search.toLowerCase());
+    const mCompany = !companyFilter || p.company === companyFilter;
     const mStatus = !filterStatus || p.status === filterStatus;
-    return mSearch && mStatus;
+    return mSearch && mCompany && mStatus;
   });
 
   const closePreview = () => {
@@ -88,6 +91,7 @@ export default function PoliciesPage() {
 
   const openEdit = (p: Policy) => {
     setForm({
+      company: p.company,
       title: p.title,
       version: p.version,
       status: p.status,
@@ -105,6 +109,7 @@ export default function PoliciesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
+      company: form.company,
       title: form.title,
       version: form.version,
       status: form.status,
@@ -216,6 +221,16 @@ export default function PoliciesPage() {
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm flex-1 min-w-[200px]"
         />
         <select
+          value={companyFilter}
+          onChange={(e) => setCompanyFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+        >
+          <option value="">{t('common.all')} — {t('policies.company')}</option>
+          {COMPANIES.map((company) => (
+            <option key={company} value={company}>{company}</option>
+          ))}
+        </select>
+        <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
@@ -250,6 +265,7 @@ export default function PoliciesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-gray-900">{p.title}</span>
+                      <span className="text-xs text-gray-500">{p.company}</span>
                       <span className="text-xs text-gray-500">v{p.version}</span>
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[p.status]}`}>
                         {t(`policies.statuses.${p.status}`)}
@@ -376,6 +392,18 @@ export default function PoliciesPage() {
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
             <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('policies.company')}</label>
+                <select
+                  value={form.company}
+                  onChange={(e) => setForm({ ...form, company: e.target.value as CompanyName })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                >
+                  {COMPANIES.map((company) => (
+                    <option key={company} value={company}>{company}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t('policies.title_')}</label>
                 <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
